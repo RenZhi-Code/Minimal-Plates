@@ -114,15 +114,13 @@ To add custom fonts:
 - Some Midnight Beta combat values may be hidden due to Blizzard's secret value system
 - Rare/Elite detection may vary slightly between WoW versions
 
-
 ## License
 
 All rights reserved. This addon is provided as-is for personal use in World of Warcraft.
 
-
 ## Changelog
 
-### Version 1.0.0
+### Version 19.11.25.01
 - Initial release
 - Cross-version support (Retail, Classic, Midnight)
 - 10 language localizations
