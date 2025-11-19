@@ -114,34 +114,11 @@ To add custom fonts:
 - Some Midnight Beta combat values may be hidden due to Blizzard's secret value system
 - Rare/Elite detection may vary slightly between WoW versions
 
-## FAQ
-
-**Q: How do I move the nameplates?**  
-A: Use Blizzard's built-in nameplate settings (`ESC` → `Interface` → `Names`) to adjust position and distance.
-
-**Q: Why are some health values hidden in Midnight Beta?**  
-A: Blizzard's new "secret value" system prevents addons from accessing certain combat data. MinimalPlates gracefully handles this with fallback displays.
-
-**Q: Can I use this with other nameplate addons?**  
-A: No, disable other nameplate addons (Plater, KUI, TidyPlates, etc.) to avoid conflicts.
-
-**Q: How do I reset settings?**  
-A: Type `/run MinimalPlatesDB = nil` then `/reload`
-
-## Credits
-
-- **Author**: AI Assistant
-- **Inspired by**: Plater Nameplates
-- **Icon Assets**: Custom elite/rare icons in `Libs/Icons/`
-- **Font Support**: LibSharedMedia-3.0 integration
 
 ## License
 
 All rights reserved. This addon is provided as-is for personal use in World of Warcraft.
 
-## Support
-
-For bug reports and feature requests, please use the CurseForge or GitHub issue tracker.
 
 ## Changelog
 
