@@ -5,7 +5,7 @@ MP.FramePools = {}
 
 -- ===== FRAME POOLING SYSTEM =====
 -- Significantly reduces CPU usage by reusing frames instead of creating/destroying them
--- Based on BetterBlizzPlates and Platynator patterns
+-- Frame pooling system for performance optimization
 
 -- Initialize all frame pools
 function MP.FramePools.Init()

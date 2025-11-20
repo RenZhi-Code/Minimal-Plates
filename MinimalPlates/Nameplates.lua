@@ -8,6 +8,11 @@ local activePlates = {}
 
 -- Initialize nameplate system
 function MP.Nameplates.Init()
+  -- Initialize DB cache to prevent nil errors
+  if MP.Display and MP.Display.UpdateLogic and MP.Display.UpdateLogic.RefreshDBCache then
+    MP.Display.UpdateLogic.RefreshDBCache()
+  end
+  
   -- Initialize event handling
   MP.NameplateEvents.Init(activePlates)
   

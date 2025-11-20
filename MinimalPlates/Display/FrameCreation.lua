@@ -6,8 +6,13 @@ MP.Display.FrameCreation = {}
 
 -- Create custom nameplate frame
 function MP.Display.FrameCreation.Create(baseFrame)
+  -- Create frame parented to baseFrame (will be reparented on install)
   local plate = CreateFrame("Frame", nil, baseFrame)
-  plate:SetAllPoints(baseFrame)
+  
+  -- Set tiny size for the anchor point
+  -- This makes the frame less prone to collision/scaling issues
+  plate:SetSize(10, 10)
+  plate:SetPoint("CENTER")
   
   -- ===== RENDER OPTIMIZATION: Flatten render layers =====
   -- Reduces render batches by 30-50% when multiple textures share the same layer
@@ -50,29 +55,36 @@ function MP.Display.FrameCreation.Create(baseFrame)
   })
   plate.HealthBorder:SetBackdropBorderColor(0, 0, 0, 1)
   
-  -- Elite Dragon Icon (custom)
-  plate.EliteIcon = plate:CreateTexture(nil, "OVERLAY")
+  -- Name text (on separate high-level frame to ensure visibility above health bar)
+  -- IMPORTANT: Create NameFrame FIRST so icons can be parented to it
+  plate.NameFrame = CreateFrame("Frame", nil, plate)
+  plate.NameFrame:SetAllPoints(plate.Health)  -- Match health bar size, not entire plate
+  plate.NameFrame:SetFrameStrata("HIGH")
+  plate.NameFrame:SetFrameLevel(101)  -- Above HealthTextFrame (100)
+  plate.NameFrame:SetIgnoreParentAlpha(true)
+
+  -- Elite Dragon Icon (custom) - created on NameFrame for visibility when positioned middle
+  plate.EliteIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.EliteIcon:SetTexture("Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\elite.png")
   plate.EliteIcon:SetSize(16, 16)
   plate.EliteIcon:SetPoint("LEFT", plate.Name, "RIGHT", 2, 0)
   plate.EliteIcon:Hide()
-  
-  -- Rare Icon (custom)
-  plate.RareIcon = plate:CreateTexture(nil, "OVERLAY")
+
+  -- Rare Icon (custom) - created on NameFrame for visibility when positioned middle
+  plate.RareIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.RareIcon:SetTexture("Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\rareelite.png")
   plate.RareIcon:SetSize(16, 16)
   plate.RareIcon:SetPoint("LEFT", plate.Name, "RIGHT", 2, 0)
   plate.RareIcon:Hide()
-  
-  -- Rare-Elite Combo Icon (custom)
-  plate.RareEliteIcon = plate:CreateTexture(nil, "OVERLAY")
+
+  -- Rare-Elite Combo Icon (custom) - created on NameFrame for visibility when positioned middle
+  plate.RareEliteIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.RareEliteIcon:SetTexture("Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\eliterarecombo.png")
   plate.RareEliteIcon:SetSize(16, 16)
   plate.RareEliteIcon:SetPoint("LEFT", plate.Name, "RIGHT", 2, 0)
   plate.RareEliteIcon:Hide()
-  
-  -- Name text
-  plate.Name = plate:CreateFontString(nil, "OVERLAY")
+
+  plate.Name = plate.NameFrame:CreateFontString(nil, "OVERLAY")
   plate.Name:SetFont(MP.Config.GetFont())
   plate.Name:SetPoint("CENTER", 0, 0)
   plate.Name:SetWidth(MP.DB.healthWidth or 120)  -- Match health bar width for truncation
@@ -95,8 +107,8 @@ function MP.Display.FrameCreation.Create(baseFrame)
   plate.Level:SetShadowOffset(1, -1)
   plate.Level:SetShadowColor(0, 0, 0, 1)
   
-  -- Classification text (Elite/Rare/Boss)
-  plate.Classification = plate:CreateFontString(nil, "OVERLAY")
+  -- Classification text (Elite/Rare/Boss) - created on NameFrame for visibility when positioned middle
+  plate.Classification = plate.NameFrame:CreateFontString(nil, "OVERLAY")
   plate.Classification:SetFont(MP.Config.GetFont())
   plate.Classification:SetPoint("LEFT", plate.Health, "RIGHT", 4, 0)
   plate.Classification:SetTextColor(1, 0.8, 0)
@@ -107,26 +119,17 @@ function MP.Display.FrameCreation.Create(baseFrame)
 -- Deleted: duplicate Elite/Rare icon creation (replaced by custom icons)
 
   
-  -- Quest Icon (Blizzard nameplate quest icon)
-  plate.QuestIcon = plate:CreateTexture(nil, "OVERLAY")
-  plate.QuestIcon:SetTexture("Interface/Nameplates/UI-Nameplate-QuestIcon")
+  -- Quest Icon (unified for quests, world quests, bonus objectives)
+  -- Uses custom high-quality quest icon - will show for any quest-related unit
+  -- Created on NameFrame for visibility when positioned middle
+  plate.QuestIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
+  plate.QuestIcon:SetTexture("Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\wow-quest-exclamation-mark.png")
   plate.QuestIcon:SetSize(MP.DB.questIconSize or 16, MP.DB.questIconSize or 16)
   plate.QuestIcon:SetPoint("LEFT", plate.Name, "RIGHT", 4, 0)
   plate.QuestIcon:Hide()
-  
-  -- World Quest Icon
-  plate.WorldQuestIcon = plate:CreateTexture(nil, "OVERLAY")
-  plate.WorldQuestIcon:SetTexture("Interface/Nameplates/UI-Nameplate-QuestIcon-WorldQuest")
-  plate.WorldQuestIcon:SetSize(MP.DB.questIconSize or 16, MP.DB.questIconSize or 16)
-  plate.WorldQuestIcon:SetPoint("LEFT", plate.Name, "RIGHT", 4, 0)
-  plate.WorldQuestIcon:Hide()
-  
-  -- Bonus Objective Icon
-  plate.BonusObjectiveIcon = plate:CreateTexture(nil, "OVERLAY")
-  plate.BonusObjectiveIcon:SetTexture("Interface/Nameplates/UI-Nameplate-BonusObjectiveIcon")
-  plate.BonusObjectiveIcon:SetSize(MP.DB.questIconSize or 16, MP.DB.questIconSize or 16)
-  plate.BonusObjectiveIcon:SetPoint("LEFT", plate.Name, "RIGHT", 4, 0)
-  plate.BonusObjectiveIcon:Hide()
+
+  -- REMOVED: WorldQuestIcon, BonusObjectiveIcon - merged into single QuestIcon above
+  -- Saves 2 textures per nameplate = ~25KB with 50 plates
   
   -- Buff container (separate from debuffs for independent positioning)
   plate.Buffs = CreateFrame("Frame", nil, plate)
@@ -145,14 +148,14 @@ function MP.Display.FrameCreation.Create(baseFrame)
   -- Legacy Auras container (kept for backward compatibility, points to Debuffs)
   plate.Auras = plate.Debuffs
 
-  -- Role Icon (Tank/Healer/DPS) - positioned above buffs
-  plate.RoleIcon = plate:CreateTexture(nil, "OVERLAY")
+  -- Role Icon (Tank/Healer/DPS) - created on NameFrame for visibility when positioned middle
+  plate.RoleIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.RoleIcon:SetSize(16, 16)
   plate.RoleIcon:SetPoint("BOTTOM", plate.Buffs, "TOP", 0, 2)
   plate.RoleIcon:Hide()
 
-  -- Raid Marker (positioned above buffs by default)
-  plate.RaidMarker = plate:CreateTexture(nil, "OVERLAY")
+  -- Raid Marker - created on NameFrame for visibility when positioned middle
+  plate.RaidMarker = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.RaidMarker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons") -- Set base texture
   plate.RaidMarker:SetSize(MP.DB.raidMarkerSize or 24, MP.DB.raidMarkerSize or 24)
   plate.RaidMarker:SetPoint("BOTTOM", plate.Buffs, "TOP", 0, 4) -- Default position above buffs
@@ -169,7 +172,8 @@ function MP.Display.FrameCreation.Create(baseFrame)
   -- Saves ~4 textures per nameplate = ~50KB with 50 plates
 
   -- ===== ESSENTIAL: CC Indicator (kept - frequently used in PvP/M+) =====
-  plate.CCIcon = plate:CreateTexture(nil, "OVERLAY")
+  -- Created on NameFrame for visibility when positioned middle
+  plate.CCIcon = plate.NameFrame:CreateTexture(nil, "OVERLAY")
   plate.CCIcon:SetSize(24, 24)
   plate.CCIcon:SetPoint("LEFT", plate.Name, "RIGHT", 6, 0)
   plate.CCIcon:Hide()
@@ -217,22 +221,15 @@ function MP.Display.FrameCreation.Create(baseFrame)
   plate.CreatureText:SetShadowColor(0, 0, 0, 1)
   plate.CreatureText:Hide()
   
-  -- Health Text (on separate high-level frame to ensure visibility above StatusBar)
-  plate.HealthTextFrame = CreateFrame("Frame", nil, plate)
-  plate.HealthTextFrame:SetAllPoints(plate.Health)
-  plate.HealthTextFrame:SetFrameStrata("HIGH")
-  plate.HealthTextFrame:SetFrameLevel(100)
-  
-  -- ===== RENDER OPTIMIZATION: Prevent unnecessary renders =====
-  -- Text-only frame doesn't need to propagate alpha from parent StatusBar
-  plate.HealthTextFrame:SetIgnoreParentAlpha(true)
-  
-  plate.HealthText = plate.HealthTextFrame:CreateFontString(nil, "OVERLAY")
+  -- Health Text (directly on NameFrame to share same high strata for visibility)
+  plate.HealthText = plate.NameFrame:CreateFontString(nil, "OVERLAY")
   plate.HealthText:SetFont(MP.Config.GetFont())
-  plate.HealthText:SetPoint("CENTER", 0, 0)
+  plate.HealthText:SetPoint("CENTER", plate.Health, "CENTER", 0, 0)
   plate.HealthText:SetTextColor(1, 1, 1)
   plate.HealthText:SetShadowOffset(1, -1)
   plate.HealthText:SetShadowColor(0, 0, 0, 1)
+  plate.HealthText:SetWordWrap(false)  -- Enable truncation with ellipsis
+  plate.HealthText:SetNonSpaceWrap(false)  -- Don't wrap on non-space characters
   plate.HealthText:Hide()
   
   -- Unit Target Text (who the unit is targeting - no arrow symbol)

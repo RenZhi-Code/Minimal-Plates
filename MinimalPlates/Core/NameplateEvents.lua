@@ -135,13 +135,16 @@ end
 -- Use for major structural changes (layout, positioning)
 -- Nameplate added callback
 local function OnNamePlateAdded(_, unit)
-  if not MP.DB or not MP.DB.enabled then return end
-  
+  -- CRITICAL: Never create nameplates for the player's own character
+  if UnitIsUnit(unit, "player") then
+    return
+  end
+
   local baseFrame = C_NamePlate.GetNamePlateForUnit(unit)
   if not baseFrame then
     return  -- No baseFrame for unit
   end
-  
+
   -- Check if we should hide friendly NPCs
   local reaction = UnitReaction(unit, "player")
   local isPlayer = UnitIsPlayer(unit)
@@ -156,8 +159,6 @@ local function OnNamePlateAdded(_, unit)
     isFriendly = reaction and reaction >= 4  -- Neutral fallback
   end
 
-  -- Nameplate added successfully
-
   if isFriendly and not isPlayer and not MP.DB.showFriendlyNPC then
     -- Hide Blizzard frame for friendly NPCs when disabled
     local blizzUF = baseFrame and baseFrame.UnitFrame
@@ -168,32 +169,54 @@ local function OnNamePlateAdded(_, unit)
     return
   end
   
-  -- CRITICAL: Completely hide Blizzard nameplate (Platynator method)
-  -- Reparent to hidden frame + unregister events = 100% reliable hiding
+  -- CRITICAL: Completely hide Blizzard nameplate
+  -- Unregister all events, then re-register only what we need
   local blizzUF = baseFrame and baseFrame.UnitFrame
   if blizzUF then
     -- Method 1: Reparent to hidden frame (most important!)
-    -- This removes the Blizzard frame from the visible UI hierarchy
     blizzUF:SetParent(MP.HiddenFrame)
 
-    -- Method 2: Unregister all Blizzard events
-    -- Prevents the frame from updating and potentially re-showing
+    -- Method 2: Unregister all Blizzard events to stop their updates
     blizzUF:UnregisterAllEvents()
+    
+    -- Method 3: Re-register UNIT_AURA for proper aura functionality (Midnight Beta)
+    if MP.Constants and MP.Constants.IsMidnight then
+      blizzUF:RegisterUnitEvent("UNIT_AURA", unit)
+    end
 
-    -- Method 3: Additional safety - hide and disable
+    -- Method 4: Hide, disable, and shrink to nothing
     blizzUF:Hide()
     blizzUF:SetAlpha(0)
+    blizzUF:SetSize(0.001, 0.001)
     blizzUF:EnableMouse(false)
     if blizzUF.SetMouseClickEnabled then
       blizzUF:SetMouseClickEnabled(false)
     end
   end
   
-  -- Create our plate
+  -- CRITICAL FIX: Don't use frame pool - just create the plate directly
+  -- The pool was causing issues because FrameCreation.Create returns a fully built frame
+  -- that we can't properly integrate with the pool system
+
+  -- CRITICAL FIX: Blizzard fades baseFrame based on distance/occlusion
+  -- Force baseFrame to full alpha so our custom plate is always visible
+  baseFrame:SetAlpha(1)
+
+  -- Create the plate directly (not from pool)
   local plate = MP.Display.FrameCreation.Create(baseFrame)
+
+  -- CRITICAL FIX: The frame is hidden by default - show it!
+  plate:Show()
+  plate:SetParent(baseFrame)
+  plate:ClearAllPoints()
+  plate:SetPoint("CENTER")
+
+  -- Mark as initialized so we don't recreate
+  plate.Initialized = true
+
+  -- Store unit token
   plate.unit = unit
   activePlates[baseFrame] = plate
-  
   -- ===== SELECTIVE EVENT REGISTRATION (70-90% event reduction) =====
   -- Register unit-specific events on the nameplate frame itself
   -- This prevents global event spam for all units
@@ -341,6 +364,9 @@ local function OnNamePlateRemoved(_, unit)
 
     plate:Hide()
     activePlates[baseFrame] = nil
+
+    -- Note: We no longer use frame pooling - frames are directly created
+    -- The frame will be garbage collected when no longer referenced
   end
   
   -- Restore Blizzard frame
@@ -356,37 +382,48 @@ function MP.NameplateEvents.RefreshAll()
   -- Update textures, sizes, fonts, then re-run update logic
   for baseFrame, plate in pairs(activePlates) do
     if plate and plate.unit and UnitExists(plate.unit) then
-      -- sizes
-      plate.Health:SetSize(MP.DB.healthWidth, MP.DB.healthHeight)
-      plate.HealthAbsorb:SetSize(MP.DB.healthWidth, MP.DB.healthHeight)
-      plate.PowerBar:SetSize(MP.DB.healthWidth, 3)
-      plate.Cast:SetSize(MP.DB.healthWidth, MP.DB.castHeight)
-      plate.TargetHighlight:SetSize(MP.DB.healthWidth + 4, MP.DB.healthHeight + 4)
-      plate.ThreatGlow:SetSize(MP.DB.healthWidth + 8, MP.DB.healthHeight + 8)
-      plate.FocusGlow:SetSize(MP.DB.healthWidth + 6, MP.DB.healthHeight + 6)
+      -- sizes (with safe fallbacks)
+      local healthWidth = MP.DB.healthWidth or 120
+      local healthHeight = MP.DB.healthHeight or 8
+      local castHeight = MP.DB.castHeight or 6
+      
+      plate.Health:SetSize(healthWidth, healthHeight)
+      -- HealthAbsorb removed for memory optimization
+      plate.PowerBar:SetSize(healthWidth, 3)
+      plate.Cast:SetSize(healthWidth, castHeight)
+      -- On-demand glow effects (only resize if they exist)
+      if plate.TargetHighlight then
+        plate.TargetHighlight:SetSize(healthWidth + 4, healthHeight + 4)
+      end
+      if plate.ThreatGlow then
+        plate.ThreatGlow:SetSize(healthWidth + 8, healthHeight + 8)
+      end
+      if plate.FocusGlow then
+        plate.FocusGlow:SetSize(healthWidth + 6, healthHeight + 6)
+      end
       
       -- Cast icon size update
       if plate.CastIcon then
-        plate.CastIcon:SetSize(MP.DB.castHeight + 4, MP.DB.castHeight + 4)
+        plate.CastIcon:SetSize(castHeight + 4, castHeight + 4)
       end
       
       -- textures
       local tex = MP.Config.GetBarTexture()
       plate.Health:SetStatusBarTexture(tex)
-      plate.HealthAbsorb:SetStatusBarTexture(tex)
+      -- HealthAbsorb removed for memory optimization
       plate.PowerBar:SetStatusBarTexture(tex)
       plate.Cast:SetStatusBarTexture(tex)
       -- fonts
       local font, size, flags = MP.Config.GetFont()
       plate.Name:SetFont(font, size, flags)
-      plate.Level:SetFont(font, size * (MP.DB.levelIconScale or 1.5), flags)
-      plate.Classification:SetFont(font, size, flags)
-      plate.HealthText:SetFont(font, size, flags)
-      plate.UnitTargetText:SetFont(font, size, flags)
-      plate.CastText:SetFont(font, size, flags)
-      plate.CastTargetText:SetFont(font, size, flags)
-      plate.GuildText:SetFont(font, size, flags)
-      plate.CreatureText:SetFont(font, size, flags)
+      if plate.Level then plate.Level:SetFont(font, size * (MP.DB.levelIconScale or 1.5), flags) end
+      if plate.Classification then plate.Classification:SetFont(font, size, flags) end
+      if plate.HealthText then plate.HealthText:SetFont(font, size, flags) end
+      if plate.UnitTargetText then plate.UnitTargetText:SetFont(font, size, flags) end
+      if plate.CastText then plate.CastText:SetFont(font, size, flags) end
+      if plate.CastTargetText then plate.CastTargetText:SetFont(font, size, flags) end
+      if plate.GuildText then plate.GuildText:SetFont(font, size, flags) end
+      if plate.CreatureText then plate.CreatureText:SetFont(font, size, flags) end
       -- update logic
       MP.Display.UpdateLogic.Update(plate, plate.unit)
       plate:Show()
@@ -415,37 +452,60 @@ function MP.NameplateEvents.Init(activePlatesRef)
 
   -- Track last target for optimized PLAYER_TARGET_CHANGED
   MP.lastTargetUnit = nil
+  
+  -- Disable Blizzard nameplate driver events
+  NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
+  if not MP.Constants.IsMidnight then
+    C_NamePlate.SetNamePlateFriendlyClickThrough(true)
+    NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
+  end
 
-  -- CRITICAL: Hook NamePlateDriverFrame.OnNamePlateAdded (Platynator/BBP method)
+  -- CRITICAL: Hook NamePlateDriverFrame.OnNamePlateAdded
   -- This fires BEFORE NAME_PLATE_UNIT_ADDED and allows us to hide Blizzard frames early
   hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
-    if not MP.DB or not MP.DB.enabled then return end
-
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit, issecure())
-    if nameplate and nameplate.UnitFrame and unit ~= "preview" then
+    if nameplate and nameplate.UnitFrame and unit ~= "preview" and not UnitIsUnit("player", unit) then
       -- Immediately hide Blizzard frame (before it renders!)
       nameplate.UnitFrame:SetParent(MP.HiddenFrame)
       nameplate.UnitFrame:UnregisterAllEvents()
       nameplate.UnitFrame:Hide()
       nameplate.UnitFrame:SetAlpha(0)
+      nameplate.UnitFrame:SetSize(0.001, 0.001)
+      
+      -- Re-register only UNIT_AURA for proper aura display
+      if MP.Constants and MP.Constants.IsMidnight then
+        nameplate.UnitFrame:RegisterUnitEvent("UNIT_AURA", unit)
+      end
     end
   end)
 
   -- Global event handler (only for events that affect all nameplates)
   local events = CreateFrame("Frame")
+  events:RegisterEvent("NAME_PLATE_CREATED")
   events:RegisterEvent("NAME_PLATE_UNIT_ADDED")
   events:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
   events:RegisterEvent("PLAYER_TARGET_CHANGED")
-  
+
   -- Player-specific events (for combo points, etc.)
   events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
   events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
-  
+
   events:SetScript("OnEvent", function(_, event, unit)
     -- Track global events
     eventStats.totalEvents = eventStats.totalEvents + 1
     eventStats.globalEvents = eventStats.globalEvents + 1
-    if event == "NAME_PLATE_UNIT_ADDED" then
+    if event == "NAME_PLATE_CREATED" then
+      -- Blizzard best practice: Use NAME_PLATE_CREATED to initialize frame pool once per frame
+      -- The baseFrame is passed as the first argument for NAME_PLATE_CREATED
+      local baseFrame = unit  -- For NAME_PLATE_CREATED, the first arg is the baseFrame, not unit
+      if baseFrame and not baseFrame.MinimalPlatesInitialized then
+        -- Mark this baseFrame as initialized to avoid duplicate work
+        baseFrame.MinimalPlatesInitialized = true
+        -- Frame pool initialization happens here if needed in the future
+        -- Currently we do all setup in NAME_PLATE_UNIT_ADDED which is fine
+      end
+
+    elseif event == "NAME_PLATE_UNIT_ADDED" then
       OnNamePlateAdded(nil, unit)
       
     elseif event == "NAME_PLATE_UNIT_REMOVED" then
@@ -461,8 +521,11 @@ function MP.NameplateEvents.Init(activePlatesRef)
         local oldPlate = C_NamePlate.GetNamePlateForUnit(oldTarget)
         local oldPlateData = oldPlate and activePlates[oldPlate]
         if oldPlateData and oldPlateData.unit then
-          if MP.Display and MP.Display.UpdateLogic and MP.Display.UpdateLogic.UpdateTarget then
-            MP.Display.UpdateLogic.UpdateTarget(oldPlateData, oldPlateData.unit, false)
+          if MP.Display and MP.Display.UpdateLogic then
+            -- Full update needed to recalculate color (cache must be refreshed)
+            if MP.Display.UpdateLogic.Update then
+              MP.Display.UpdateLogic.Update(oldPlateData, oldPlateData.unit)
+            end
           end
         end
       end
@@ -472,14 +535,9 @@ function MP.NameplateEvents.Init(activePlatesRef)
         local newPlate = C_NamePlate.GetNamePlateForUnit(newTarget)
         local newPlateData = newPlate and activePlates[newPlate]
         if newPlateData and newPlateData.unit then
-          if MP.Display and MP.Display.UpdateLogic then
-            if MP.Display.UpdateLogic.UpdateTarget then
-              MP.Display.UpdateLogic.UpdateTarget(newPlateData, newPlateData.unit, true)
-            end
+          if MP.Display and MP.Display.UpdateLogic and MP.Display.UpdateLogic.Update then
             -- Full update for new target to ensure everything is refreshed
-            if MP.Display.UpdateLogic.Update then
-              MP.Display.UpdateLogic.Update(newPlateData, newPlateData.unit)
-            end
+            MP.Display.UpdateLogic.Update(newPlateData, newPlateData.unit)
           end
         end
         MP.lastTargetUnit = newTarget

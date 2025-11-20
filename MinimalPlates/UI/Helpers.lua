@@ -52,14 +52,7 @@ local function ThrottledRefresh()
     if MP.Nameplates and MP.Nameplates.RefreshAll then
       MP.Nameplates.RefreshAll()
     end
-    -- Also refresh preview if it's visible
-    if MP.Preview and MP.Preview.Refresh then
-      MP.Preview.Refresh()
-    end
-    -- Refresh settings UI preview if visible
-    if MP.Settings and MP.Settings.RefreshPreview then
-      MP.Settings.RefreshPreview()
-    end
+    -- REMOVED: Preview panel refresh (preview panel removed for memory/simplicity)
     refreshThrottle.timer = nil
   end)
 end

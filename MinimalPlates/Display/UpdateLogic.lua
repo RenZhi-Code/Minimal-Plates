@@ -32,6 +32,8 @@ local UnitPlayerControlled = UnitPlayerControlled
 local UnitIsTapDenied = UnitIsTapDenied
 local UnitCreatureType = UnitCreatureType
 local UnitClass = UnitClass
+local UnitInParty = UnitInParty
+local UnitInRaid = UnitInRaid
 local GetRaidTargetIndex = GetRaidTargetIndex
 local GetGuildInfo = GetGuildInfo
 local GetQuestDifficultyColor = GetQuestDifficultyColor
@@ -58,7 +60,7 @@ function MP.Display.UpdateLogic.RefreshDBCache()
   dbCache.castHeight = MP.DB.castHeight or 6
 
   -- Gameplay settings
-  dbCache.classificationScale = MP.DB.classificationScale
+  dbCache.classificationScale = type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0
   dbCache.eliteScale = MP.DB.eliteScale or 1.1
   dbCache.bossScale = MP.DB.bossScale or 1.25
   dbCache.targetHighlight = MP.DB.targetHighlight
@@ -70,7 +72,9 @@ function MP.Display.UpdateLogic.RefreshDBCache()
   dbCache.friendlyPlayerMode = MP.DB.friendlyPlayerMode or "text"
   dbCache.friendlyNPCMode = MP.DB.friendlyNPCMode or "text"
   dbCache.enemyPlayerMode = MP.DB.enemyPlayerMode or "bar"
-  dbCache.enemyNPCMode = MP.DB.enemyNPCMode or "bar"
+  -- CRITICAL FIX: Enemy NPCs should never be "hide" - always default to "bar"
+  dbCache.enemyNPCMode = (MP.DB.enemyNPCMode and MP.DB.enemyNPCMode ~= "hide") and MP.DB.enemyNPCMode or "bar"
+  dbCache.partyMembersTextOnly = MP.DB.partyMembersTextOnly
 
   -- Text settings
   dbCache.showHealthText = MP.DB.showHealthText
@@ -82,7 +86,20 @@ function MP.Display.UpdateLogic.RefreshDBCache()
   dbCache.threatColoring = MP.DB.threatColoring
   dbCache.showRaidMarkers = MP.DB.showRaidMarkers
   dbCache.showEliteBorder = MP.DB.showEliteBorder
-  dbCache.questNPCColor = MP.DB.questNPCColor or {r = 0.8, g = 0.4, b = 1}
+  -- Ensure questNPCColor is always a valid table
+  if MP.DB.questNPCColor and type(MP.DB.questNPCColor) == "table" then
+    dbCache.questNPCColor = MP.DB.questNPCColor
+  else
+    dbCache.questNPCColor = {r = 0.8, g = 0.4, b = 1}
+  end
+
+  -- Target color override
+  dbCache.useTargetColor = MP.DB.useTargetColor or false
+  if MP.DB.targetColor and type(MP.DB.targetColor) == "table" then
+    dbCache.targetColor = MP.DB.targetColor
+  else
+    dbCache.targetColor = {r = 1, g = 1, b = 0}
+  end
 
   -- Positioning
   dbCache.namePosition = MP.DB.namePosition or "top"
@@ -147,6 +164,43 @@ local unitInfoCache = {
   healthMax = 1,
 }
 
+-- ===== HELPER: Instance-aware text-only mode logic (consolidate repeated code) =====
+local function ShouldForceTextOnly(unit, isPlayer, isFriendly)
+  if not isFriendly then
+    return false
+  end
+
+  -- Force party/raid members to text-only if enabled
+  if (dbCache.partyMembersTextOnly or (MP.DB and MP.DB.partyMembersTextOnly)) then
+    -- Check if unit is in our party/raid by comparing against all party/raid members
+    if IsInRaid() then
+      for i = 1, 40 do
+        local raidUnit = "raid" .. i
+        if UnitExists(raidUnit) and UnitIsUnit(unit, raidUnit) then
+          return true
+        end
+      end
+    elseif IsInGroup() then
+      for i = 1, 4 do
+        local partyUnit = "party" .. i
+        if UnitExists(partyUnit) and UnitIsUnit(unit, partyUnit) then
+          return true
+        end
+      end
+    end
+  end
+
+  -- Force friendly NPCs to text-only in raid/dungeon instances (per memory requirement)
+  local inInstance, instanceType = IsInInstance()
+  if inInstance and (instanceType == "party" or instanceType == "raid") then
+    if not isPlayer then  -- Friendly NPCs only
+      return true
+    end
+  end
+  
+  return false
+end
+
 local function GetUnitInfo(unit)
   if not UnitExists(unit) then
     unitInfoCache.exists = false
@@ -199,17 +253,22 @@ local colorCache = {}
 local questAPIsAvailable = {
   UnitIsQuestBoss = type(UnitIsQuestBoss) == "function",
   UnitIsRelatedToActiveQuest = C_QuestLog and type(C_QuestLog.UnitIsRelatedToActiveQuest) == "function",
-  IsUnitOnQuest = C_QuestLog and type(C_QuestLog.IsUnitOnQuest) == "function",
 }
 
 local function GetUnitColorCached(unit, unitInfo)
-  -- Use unit as cache key
+  local r, g, b
+
+  -- Target color override (HIGHEST PRIORITY - DO NOT CACHE)
+  if dbCache.useTargetColor and UnitIsUnit(unit, "target") then
+    local targetColor = dbCache.targetColor or {r = 1, g = 1, b = 0}
+    return targetColor.r, targetColor.g, targetColor.b
+  end
+  
+  -- Use cached color for non-target units
   if colorCache[unit] then
     local c = colorCache[unit]
     return c.r, c.g, c.b
   end
-
-  local r, g, b
 
   -- Quest color override (OPTIMIZED: No pcall, pre-checked APIs)
   local isQuest = false
@@ -217,12 +276,12 @@ local function GetUnitColorCached(unit, unitInfo)
     isQuest = true
   elseif questAPIsAvailable.UnitIsRelatedToActiveQuest and C_QuestLog.UnitIsRelatedToActiveQuest(unit) then
     isQuest = true
-  elseif questAPIsAvailable.IsUnitOnQuest and C_QuestLog.IsUnitOnQuest(unit) then
-    isQuest = true
   end
 
   if isQuest then
-    r, g, b = dbCache.questNPCColor.r, dbCache.questNPCColor.g, dbCache.questNPCColor.b
+    -- Ensure questNPCColor exists (in case cache not initialized yet)
+    local questColor = dbCache.questNPCColor or (MP.DB and MP.DB.questNPCColor) or {r = 0.8, g = 0.4, b = 1}
+    r, g, b = questColor.r, questColor.g, questColor.b
   -- Threat coloring
   elseif dbCache.threatColoring and unitInfo and unitInfo.canAttack then
     local _, threatStatus = UnitDetailedThreatSituation("player", unit)
@@ -282,13 +341,13 @@ function MP.Display.UpdateLogic.UpdateTarget(plate, unit, isTarget)
     end
   end
   
-  if (dbCache.targetHighlight ~= nil and dbCache.targetHighlight) or (MP.DB and MP.DB.targetHighlight) and isTarget then
-    local targetScale = dbCache.targetScale or (MP.DB and MP.DB.targetScale) or 1.0
+  -- Target scaling
+  local targetEnabled = dbCache.targetHighlight or (MP.DB and MP.DB.targetHighlight)
+  if targetEnabled and isTarget then
+    local targetScale = dbCache.targetScale or (MP.DB and MP.DB.targetScale) or 1.2
     plate:SetScale(baseScale * targetScale * classificationMultiplier)
-    MP.Display.GlowEffects.HideTargetHighlight(plate)
   else
     plate:SetScale(baseScale * classificationMultiplier)
-    MP.Display.GlowEffects.HideTargetHighlight(plate)
   end
   
   -- Fade Non-Target
@@ -306,11 +365,13 @@ end
 
 -- Update health bar display
 function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
-  if not plate or not unit or not unitInfo then return end
+  if not plate or not unit or not unitInfo then
+    return
+  end
 
   local isPlayer = unitInfo.isPlayer
   local isFriendly = unitInfo.isFriendly
-  
+
   -- Determine display mode
   local mode
   if isFriendly then
@@ -318,24 +379,37 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
   else
     mode = isPlayer and dbCache.enemyPlayerMode or dbCache.enemyNPCMode
   end
-  
+
+  -- CRITICAL FIX: Enemy NPCs should never be hidden completely
+  -- If mode is invalid or "hide", force to "bar" for enemy NPCs
+  if not isFriendly and not isPlayer then
+    if not mode or mode == "hide" or mode == "" then
+      mode = "bar"
+    end
+  end
+
+  -- Override: Instance-aware text-only mode (party/raid members + friendly NPCs in instances)
+  if ShouldForceTextOnly(unit, isPlayer, isFriendly) then
+    mode = "text"
+  end
+
   if mode == "hide" then
     plate.Health:Hide()
     plate.Health:SetAlpha(0)
-    plate.HealthBorder:Hide()
+    if plate.HealthBorder then plate.HealthBorder:Hide() end
     if plate.HealthHighlightOverlay then plate.HealthHighlightOverlay:Hide() end
     if plate.HealthShadowOverlay then plate.HealthShadowOverlay:Hide() end
     if plate.HealthBackground then plate.HealthBackground:Hide() end
-    plate.HealthText:Hide()
+    if plate.HealthText then plate.HealthText:Hide() end
     -- HealthAbsorb removed for memory optimization
     return
   end
-  
-  if mode == "bar" and (not isFriendly or not dbCache.showEnemyHealthBar == false) then
+
+  if mode == "bar" then
     -- Show health bar
     local health = UnitHealth(unit)
     local maxHealth = UnitHealthMax(unit)
-    
+
     local success = pcall(function()
       plate.Health:SetMinMaxValues(0, maxHealth)
       plate.Health:SetValue(health)
@@ -352,10 +426,10 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
       
       -- Use cached color calculation (5-8% CPU reduction)
       local r, g, b = GetUnitColorCached(unit, unitInfo)
-      
+
       -- Boost saturation
       r, g, b = math_min(r * 1.3, 1), math_min(g * 1.3, 1), math_min(b * 1.3, 1)
-      
+
       plate.Health:GetStatusBarTexture():SetVertexColor(r, g, b)
       plate.Health:Show()
       plate.Health:SetAlpha(1)
@@ -380,24 +454,25 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
 
       if okCmp and hasHealth then
         -- Update border to match health bar fill width
-        local currentHealth, maxHealth = plate.Health:GetValue(), select(2, plate.Health:GetMinMaxValues())
-        if maxHealth and maxHealth > 0 then
-          local healthPct = currentHealth / maxHealth
-          local barWidth = dbCache.healthWidth
-          local fillWidth = barWidth * healthPct
+        if plate.HealthBorder then
+          local currentHealth, maxHealth = plate.Health:GetValue(), select(2, plate.Health:GetMinMaxValues())
+          if maxHealth and maxHealth > 0 then
+            local healthPct = currentHealth / maxHealth
+            local barWidth = dbCache.healthWidth
+            local fillWidth = barWidth * healthPct
 
-          -- Resize border to match the filled portion of the health bar
-          plate.HealthBorder:ClearAllPoints()
-          plate.HealthBorder:SetSize(fillWidth + 2, dbCache.healthHeight + 2)
-          plate.HealthBorder:SetPoint("LEFT", plate.Health, "LEFT", -1, 0)
+            -- Resize border to match the filled portion of the health bar
+            plate.HealthBorder:ClearAllPoints()
+            plate.HealthBorder:SetSize(fillWidth + 2, dbCache.healthHeight + 2)
+            plate.HealthBorder:SetPoint("LEFT", plate.Health, "LEFT", -1, 0)
+          end
+          plate.HealthBorder:Show()
         end
-
-        plate.HealthBorder:Show()
         if plate.HealthBackground then plate.HealthBackground:Show() end
         if plate.HealthHighlightOverlay then plate.HealthHighlightOverlay:Show() end
         if plate.HealthShadowOverlay then plate.HealthShadowOverlay:Show() end
       else
-        plate.HealthBorder:Hide()
+        if plate.HealthBorder then plate.HealthBorder:Hide() end
         MP.Display.GlowEffects.HideThreatGlow(plate)
         MP.Display.GlowEffects.HideFocusGlow(plate)
         MP.Display.GlowEffects.HideMouseoverHighlight(plate)
@@ -407,7 +482,7 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
       end
       
       -- Health Text
-      if dbCache.showHealthText then
+      if dbCache.showHealthText and plate.HealthText then
         local textSuccess, healthValue = pcall(function()
           if dbCache.healthTextFormat == "percentage" then
             return math_ceil(healthPct * 100) .. "%"
@@ -417,15 +492,53 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
             return string_format("%d%% (%s)", math_ceil(healthPct * 100), MP.Constants.AbbreviateNumbers(health))
           end
         end)
-        
+
         if textSuccess and healthValue then
+          -- Dynamically set width to match health bar
+          local barWidth = plate.Health:GetWidth() or MP.DB.healthWidth or 120
+
+          -- Calculate icon space on right side to prevent overlap
+          local iconPadding = 0
+          if plate.QuestIcon and plate.QuestIcon:IsShown() then
+            iconPadding = iconPadding + 20  -- Quest icon + spacing
+          end
+          if plate.EliteIcon and plate.EliteIcon:IsShown() then
+            iconPadding = iconPadding + 20  -- Elite icon + spacing
+          end
+          if plate.RareIcon and plate.RareIcon:IsShown() then
+            iconPadding = iconPadding + 20  -- Rare icon + spacing
+          end
+          if plate.RareEliteIcon and plate.RareEliteIcon:IsShown() then
+            iconPadding = iconPadding + 20  -- Rare Elite icon + spacing
+          end
+
+          -- Position health text to the right of name when name is inside bar (middle position)
+          if dbCache.namePosition == "middle" then
+            plate.HealthText:ClearAllPoints()
+            plate.HealthText:SetJustifyH("RIGHT")
+            -- When positioned next to name, anchor to RIGHT edge of bar to prevent overflow
+            -- Width is calculated to fit between name and right edge (accounting for icons)
+            local nameWidth = plate.Name:GetStringWidth() or 0
+            local availableWidth = barWidth - nameWidth - 12 - iconPadding
+            plate.HealthText:SetWidth(math.max(10, availableWidth))
+            -- Anchor to right edge of health bar, offset by icon padding
+            plate.HealthText:SetPoint("RIGHT", plate.Health, "RIGHT", -iconPadding - 2, 0)
+          else
+            -- Default center positioning
+            plate.HealthText:ClearAllPoints()
+            plate.HealthText:SetJustifyH("CENTER")
+            plate.HealthText:SetWidth(math.max(10, barWidth - 4))
+            plate.HealthText:SetPoint("CENTER", plate.Health, "CENTER", 0, 0)
+          end
+
+          -- Set text AFTER width and position are configured
           plate.HealthText:SetText(healthValue)
           plate.HealthText:Show()
         else
           plate.HealthText:Hide()
         end
       else
-        plate.HealthText:Hide()
+        if plate.HealthText then plate.HealthText:Hide() end
       end
 
       -- Absorb shields (REMOVED - Memory optimization)
@@ -433,19 +546,19 @@ function MP.Display.UpdateLogic.UpdateHealth(plate, unit, unitInfo)
     else
       -- Secret values, hide bar
       plate.Health:Hide()
-      plate.HealthBorder:Hide()
-      plate.HealthText:Hide()
+      if plate.HealthBorder then plate.HealthBorder:Hide() end
+      if plate.HealthText then plate.HealthText:Hide() end
       -- HealthAbsorb removed for memory optimization
     end
   else
     -- Text-only mode
     plate.Health:Hide()
     plate.Health:SetAlpha(0)
-    plate.HealthBorder:Hide()
+    if plate.HealthBorder then plate.HealthBorder:Hide() end
     if plate.HealthHighlightOverlay then plate.HealthHighlightOverlay:Hide() end
     if plate.HealthShadowOverlay then plate.HealthShadowOverlay:Hide() end
     if plate.HealthBackground then plate.HealthBackground:Hide() end
-    plate.HealthText:Hide()
+    if plate.HealthText then plate.HealthText:Hide() end
     -- HealthAbsorb removed for memory optimization
   end
 end
@@ -471,6 +584,11 @@ function MP.Display.UpdateLogic.UpdateName(plate, unit, unitInfo)
     if not isPlayer then
       mode = dbCache.enemyNPCMode or (MP.DB and MP.DB.enemyNPCMode) or "bar"
     end
+  end
+  
+  -- Override: Instance-aware text-only mode (party/raid members + friendly NPCs in instances)
+  if ShouldForceTextOnly(unit, isPlayer, isFriendly) then
+    mode = "text"
   end
 
   -- Debug: trace units (debug code removed)
@@ -503,11 +621,38 @@ function MP.Display.UpdateLogic.UpdateName(plate, unit, unitInfo)
   end
 
   if mode == "bar" then
+    -- Dynamically set width to match health bar for proper truncation
+    local barWidth = plate.Health:GetWidth() or MP.DB.healthWidth or 120
+
+    -- Calculate icon space on right side to prevent overlap
+    local iconPadding = 0
+    if plate.QuestIcon and plate.QuestIcon:IsShown() then
+      iconPadding = iconPadding + 20  -- Quest icon + spacing
+    end
+    if plate.EliteIcon and plate.EliteIcon:IsShown() then
+      iconPadding = iconPadding + 20  -- Elite icon + spacing
+    end
+    if plate.RareIcon and plate.RareIcon:IsShown() then
+      iconPadding = iconPadding + 20  -- Rare icon + spacing
+    end
+    if plate.RareEliteIcon and plate.RareEliteIcon:IsShown() then
+      iconPadding = iconPadding + 20  -- Rare Elite icon + spacing
+    end
+
     -- Bar mode: Apply Advanced position settings
     if pos == "top" then
       plate.Name:SetPoint("BOTTOM", plate.Health, "TOP", 0, 2 + offsetY)
     elseif pos == "middle" then
-      plate.Name:SetPoint("CENTER", plate.Health, "CENTER", 0, offsetY)
+      -- When name is in middle position, check if health text will be shown next to it
+      if dbCache.showHealthText then
+        -- Align name to left side of bar when health text is shown
+        plate.Name:SetPoint("LEFT", plate.Health, "LEFT", 2, offsetY)
+        plate.Name:SetJustifyH("LEFT")
+      else
+        -- Center name when no health text is shown
+        plate.Name:SetPoint("CENTER", plate.Health, "CENTER", 0, offsetY)
+        plate.Name:SetJustifyH("CENTER")
+      end
     elseif pos == "left" then
       plate.Name:SetPoint("RIGHT", plate.Health, "LEFT", -2, offsetY)
     elseif pos == "right" then
@@ -519,6 +664,9 @@ function MP.Display.UpdateLogic.UpdateName(plate, unit, unitInfo)
       plate.Name:SetPoint("BOTTOM", plate.Health, "TOP", 0, 2 + offsetY)
     end
     plate.Name:SetScale(scale)
+
+    plate.Name:SetWidth(barWidth - iconPadding)
+
     if plate.NameOutline then plate.NameOutline:Hide() end
   else
     -- Text-only mode: Apply Advanced position settings relative to plate center
@@ -547,8 +695,13 @@ function MP.Display.UpdateLogic.UpdateName(plate, unit, unitInfo)
   
   -- Color name - Use cached color (5-8% CPU reduction)
   local r, g, b = GetUnitColorCached(unit, unitInfo)
-  
-  plate.Name:SetTextColor(r, g, b)
+
+  -- Override to white if name is positioned inside bar (middle position AND bar mode)
+  if mode == "bar" and dbCache.namePosition == "middle" then
+    plate.Name:SetTextColor(1, 1, 1)
+  else
+    plate.Name:SetTextColor(r, g, b)
+  end
   plate.Name:Show()
   
   -- Level
@@ -615,6 +768,11 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
     end
   end
   
+  -- Override: Instance-aware text-only mode (party/raid members + friendly NPCs in instances)
+  if ShouldForceTextOnly(unit, isPlayer, isFriendly) then
+    mode = "text"
+  end
+  
   if mode == "text" or mode == "hide" then
     -- Hide icons in text-only mode (friendlies)
     if plate.EliteIcon then plate.EliteIcon:Hide() end
@@ -656,19 +814,23 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.Classification:Hide()
         elseif pos == "top" then
           plate.Classification:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "left" then
           plate.Classification:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "right" then
           plate.Classification:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
+          plate.Classification:Show()
+        elseif pos == "middle" or pos == "center" then
+          plate.Classification:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         else
           plate.Classification:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         end
       end
@@ -686,6 +848,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.RareEliteIcon:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
         elseif pos == "right" then
           plate.RareEliteIcon:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+        elseif pos == "middle" or pos == "center" then
+          plate.RareEliteIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
         else
           plate.RareEliteIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
         end
@@ -704,19 +868,23 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.Classification:Hide()
         elseif pos == "top" then
           plate.Classification:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "left" then
           plate.Classification:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "right" then
           plate.Classification:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
+          plate.Classification:Show()
+        elseif pos == "middle" or pos == "center" then
+          plate.Classification:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         else
           plate.Classification:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         end
       end
@@ -734,6 +902,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.RareIcon:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
         elseif pos == "right" then
           plate.RareIcon:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+        elseif pos == "middle" or pos == "center" then
+          plate.RareIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
         else
           plate.RareIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
         end
@@ -752,19 +922,23 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.Classification:Hide()
         elseif pos == "top" then
           plate.Classification:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "left" then
           plate.Classification:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "right" then
           plate.Classification:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
+          plate.Classification:Show()
+        elseif pos == "middle" or pos == "center" then
+          plate.Classification:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         else
           plate.Classification:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         end
       end
@@ -782,6 +956,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.EliteIcon:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
         elseif pos == "right" then
           plate.EliteIcon:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+        elseif pos == "middle" or pos == "center" then
+          plate.EliteIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
         else
           plate.EliteIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
         end
@@ -800,28 +976,48 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.Classification:Hide()
         elseif pos == "top" then
           plate.Classification:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "left" then
           plate.Classification:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         elseif pos == "right" then
           plate.Classification:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
+          plate.Classification:Show()
+        elseif pos == "middle" or pos == "center" then
+          plate.Classification:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         else
           plate.Classification:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-          plate.Classification:SetScale(MP.DB.classificationScale or 1.0)
+          plate.Classification:SetScale(type(MP.DB.classificationScale) == "number" and MP.DB.classificationScale or 1.0)
           plate.Classification:Show()
         end
       end
     end
   end
-  
-  -- Quest Icon
-  if MP.DB.showQuestIcon and type(UnitIsQuestBoss) == "function" then
-    if UnitIsQuestBoss(unit) then
+
+  -- Quest Icon (unified: regular quests, world quests, bonus objectives)
+  if MP.DB.showQuestIcon then
+    -- Check for any quest-related unit using all available APIs
+    local isQuestRelated = false
+
+    -- Check regular quest boss
+    if type(UnitIsQuestBoss) == "function" and UnitIsQuestBoss(unit) then
+      isQuestRelated = true
+    end
+
+    -- Check related to active quest (includes world quests and bonus objectives)
+    if not isQuestRelated and C_QuestLog and C_QuestLog.UnitIsRelatedToActiveQuest then
+      local success, result = pcall(C_QuestLog.UnitIsRelatedToActiveQuest, unit)
+      if success and result then
+        isQuestRelated = true
+      end
+    end
+
+    if isQuestRelated then
       plate.QuestIcon:ClearAllPoints()
       local pos = MP.DB.questIconPosition or "right"
       local ox = MP.DB.questIconOffsetX or 0
@@ -834,6 +1030,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
         plate.QuestIcon:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
       elseif pos == "right" then
         plate.QuestIcon:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+      elseif pos == "middle" or pos == "center" then
+        plate.QuestIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
       else
         plate.QuestIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
       end
@@ -845,7 +1043,7 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
   else
     plate.QuestIcon:Hide()
   end
-  
+
   -- Arena ID (show 1-5 for arena opponents)
   if MP.DB.showArenaID and isPlayer and not isFriendly then
     local arenaID = nil
@@ -889,6 +1087,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
         plate.RoleIcon:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
       elseif pos == "right" then
         plate.RoleIcon:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
+      elseif pos == "middle" or pos == "center" then
+        plate.RoleIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
       else
         plate.RoleIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
       end
@@ -918,6 +1118,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
         plate.RaidMarker:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
       elseif pos == "right" then
         plate.RaidMarker:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+      elseif pos == "middle" or pos == "center" then
+        plate.RaidMarker:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
       elseif pos == "bottom" then
         plate.RaidMarker:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
       end
@@ -946,7 +1148,7 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
   end
   
   -- CC Icon
-  if MP.DB.showCCIndicator and plate.AuraTracker:HasCrowdControl() then
+  if MP.DB.showCCIndicator and plate.AuraTracker and plate.AuraTracker:HasCrowdControl() then
     local ccAuras = plate.AuraTracker:GetCrowdControl()
     if ccAuras[1] then
       plate.CCIcon:SetTexture(ccAuras[1].icon)
@@ -962,6 +1164,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
         plate.CCIcon:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
       elseif pos == "right" then
         plate.CCIcon:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
+      elseif pos == "middle" or pos == "center" then
+        plate.CCIcon:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
       else
         plate.CCIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
       end
@@ -996,6 +1200,8 @@ function MP.Display.UpdateLogic.UpdateIcons(plate, unit, unitInfo)
           plate.RoleIcon:SetPoint("RIGHT", plate.Health, "LEFT", -2, (MP.DB.roleIconOffsetY or 0))
         elseif pos == "right" then
           plate.RoleIcon:SetPoint("LEFT", plate.Health, "RIGHT", 2, (MP.DB.roleIconOffsetY or 0))
+        elseif pos == "middle" or pos == "center" then
+          plate.RoleIcon:SetPoint("CENTER", plate.Health, "CENTER", 0, (MP.DB.roleIconOffsetY or 0))
         else
           plate.RoleIcon:SetPoint("TOP", plate.Health, "BOTTOM", 0, -2 + (MP.DB.roleIconOffsetY or 0))
         end
@@ -1097,8 +1303,162 @@ end
 
 -- Update nameplate (main display logic)
 -- NOW USES GRANULAR UPDATE FUNCTIONS for selective refresh (60-80% performance boost)
+-- Preview Mode: Show all icons and dummy auras on the targeted nameplate
+local function ShowPreviewMode(plate, unit, unitInfo)
+  if not plate or not unit then return end
+
+  plate:Show()
+
+  -- Show health bar with target color
+  plate.Health:Show()
+  plate.Health:SetMinMaxValues(0, 100)
+  plate.Health:SetValue(75)
+  local r, g, b = 1, 1, 0 -- Yellow for preview
+  plate.Health:GetStatusBarTexture():SetVertexColor(r, g, b)
+  if plate.HealthBorder then plate.HealthBorder:Show() end
+
+  -- Show name
+  plate.Name:Show()
+  plate.Name:SetText("PREVIEW MODE - All Icons")
+
+  -- Show level
+  if plate.Level then
+    plate.Level:Show()
+    plate.Level:SetText("??")
+  end
+
+  -- Show all elite/rare icons
+  if plate.EliteIcon then
+    plate.EliteIcon:Show()
+    plate.EliteIcon:SetPoint("LEFT", plate.Name, "RIGHT", 2, 0)
+  end
+
+  -- Show classification text
+  if plate.Classification then
+    plate.Classification:Show()
+    plate.Classification:SetText("Elite")
+  end
+
+  -- Show quest icon
+  if plate.QuestIcon then
+    plate.QuestIcon:Show()
+  end
+
+  -- Show role icon (tank)
+  if plate.RoleIcon then
+    plate.RoleIcon:Show()
+    plate.RoleIcon:SetTexCoord(0, 0.25, 0.5, 0.75) -- Tank icon
+  end
+
+  -- Show raid marker (star)
+  if plate.RaidMarker then
+    plate.RaidMarker:Show()
+    SetRaidTargetIconTexture(plate.RaidMarker, 1) -- Star
+  end
+
+  -- Show CC icon (polymorph)
+  if plate.CCIcon then
+    plate.CCIcon:Show()
+    plate.CCIcon:SetTexture("Interface\\Icons\\Spell_Nature_Polymorph")
+  end
+
+  -- Show cast bar
+  if plate.Cast then
+    plate.Cast:Show()
+    plate.Cast:SetMinMaxValues(0, 3)
+    plate.Cast:SetValue(1.5)
+    if plate.CastText then
+      plate.CastText:SetText("Fireball (Preview)")
+    end
+    if plate.CastIcon then
+      plate.CastIcon:SetTexture("Interface\\Icons\\Spell_Fire_FlameBolt")
+      plate.CastIcon:Show()
+    end
+  end
+
+  -- Show dummy auras (if aura system exists)
+  if MP.Display and MP.Display.AuraDisplay then
+    -- Create some dummy aura data
+    local dummyAuras = {
+      {name = "Fortitude", icon = "Interface\\Icons\\Spell_Holy_WordFortitude", count = 1, duration = 600, expirationTime = GetTime() + 600},
+      {name = "Renew", icon = "Interface\\Icons\\Spell_Holy_Renew", count = 1, duration = 15, expirationTime = GetTime() + 15},
+      {name = "Power Word: Shield", icon = "Interface\\Icons\\Spell_Holy_PowerWordShield", count = 1, duration = 15, expirationTime = GetTime() + 15},
+    }
+
+    -- Show dummy buffs
+    if plate.Buffs then
+      local activeIcons = plate.Buffs.activeIcons or {}
+      for i = 1, 3 do
+        if not activeIcons[i] then
+          activeIcons[i] = MP.FramePools.GetAuraIcon()
+          activeIcons[i]:SetParent(plate.Buffs)
+        end
+        local icon = activeIcons[i]
+        if icon and dummyAuras[i] then
+          icon:Show()
+          icon:SetSize(20, 20)
+          icon:SetPoint("LEFT", plate.Buffs, "LEFT", (i-1) * 22, 0)
+          if icon.texture then
+            icon.texture:SetTexture(dummyAuras[i].icon)
+          end
+          if icon.count and dummyAuras[i].count > 1 then
+            icon.count:SetText(dummyAuras[i].count)
+            icon.count:Show()
+          end
+        end
+      end
+      plate.Buffs:Show()
+    end
+  end
+
+  -- Show threat glow
+  if MP.DB.showThreatGlow then
+    if not plate.ThreatGlow then
+      plate.ThreatGlow = plate:CreateTexture(nil, "BACKGROUND")
+      plate.ThreatGlow:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Flash")
+      plate.ThreatGlow:SetAllPoints(plate.Health)
+      plate.ThreatGlow:SetBlendMode("ADD")
+    end
+    plate.ThreatGlow:SetVertexColor(1, 0, 0, 0.5) -- Red glow
+    plate.ThreatGlow:Show()
+  end
+
+  -- Show creature text
+  if plate.CreatureText and MP.DB.showCreatureText then
+    plate.CreatureText:Show()
+    plate.CreatureText:SetText("<Preview Subtitle>")
+  end
+end
+
 function MP.Display.UpdateLogic.Update(plate, unit)
   if not unit or not UnitExists(unit) then return end
+
+  -- CRITICAL: Hide MinimalPlates elements for dead/ghost units
+  -- Let Blizzard's default nameplate handle corpses (combat-protected frames)
+  if UnitIsDead(unit) or UnitIsDeadOrGhost(unit) then
+    plate.Health:Hide()
+    if plate.HealthBorder then plate.HealthBorder:Hide() end
+    if plate.HealthText then plate.HealthText:Hide() end
+    plate.Name:Hide()
+    if plate.Level then plate.Level:Hide() end
+    if plate.Classification then plate.Classification:Hide() end
+    if plate.QuestIcon then plate.QuestIcon:Hide() end
+    if plate.RoleIcon then plate.RoleIcon:Hide() end
+    if plate.CCIcon then plate.CCIcon:Hide() end
+    if plate.EliteIcon then plate.EliteIcon:Hide() end
+    if plate.RareIcon then plate.RareIcon:Hide() end
+    if plate.RareEliteIcon then plate.RareEliteIcon:Hide() end
+    if plate.PowerBar then plate.PowerBar:Hide() end
+    if plate.PowerBorder then plate.PowerBorder:Hide() end
+    if plate.GuildText then plate.GuildText:Hide() end
+    if plate.CreatureText then plate.CreatureText:Hide() end
+    if plate.UnitTargetText then plate.UnitTargetText:Hide() end
+    if plate.RaidMarker then plate.RaidMarker:Hide() end
+    if plate.PvPMarker then plate.PvPMarker:Hide() end
+    plate:Hide()
+    ClearColorCache()
+    return
+  end
 
   -- ===== PERFORMANCE: Get unit info once (10-15% CPU reduction) =====
   local unitInfo = GetUnitInfo(unit)
@@ -1107,7 +1467,13 @@ function MP.Display.UpdateLogic.Update(plate, unit)
   local isPlayer = unitInfo.isPlayer
   local isFriendly = unitInfo.isFriendly
   local isTarget = unitInfo.isTarget
-  
+
+  -- Preview mode: Show all icons and dummy auras on target
+  if MP.DB.previewMode and isTarget then
+    ShowPreviewMode(plate, unit, unitInfo)
+    return
+  end
+
   -- Determine display mode for hide/text/bar
   local mode
   if isFriendly then
@@ -1116,13 +1482,21 @@ function MP.Display.UpdateLogic.Update(plate, unit)
     mode = isPlayer and dbCache.enemyPlayerMode or dbCache.enemyNPCMode
   end
 
-  if mode == "hide" then
-    plate:Hide()
-    ClearColorCache()  -- Clear cache before returning
-    return
-  else
-    plate:Show()
+  -- CRITICAL FIX: Default to safe values if mode is nil or invalid
+  if not mode or mode == "" then
+    if isFriendly then
+      mode = isPlayer and "text" or "text"  -- Friendly defaults to text
+    else
+      mode = "bar"  -- Enemy defaults to bar
+    end
   end
+
+  -- CRITICAL FIX: Never hide nameplates completely - force to text/bar
+  if mode == "hide" then
+    mode = "bar"
+  end
+
+  plate:Show()
   
   -- Call granular update functions (allows selective updates later)
   MP.Display.UpdateLogic.UpdateTarget(plate, unit, isTarget)
@@ -1203,6 +1577,8 @@ function MP.Display.UpdateLogic.Update(plate, unit)
         plate.RaidMarker:SetPoint("RIGHT", plate.Health, "LEFT", -4 + ox, oy)
       elseif pos == "right" then
         plate.RaidMarker:SetPoint("LEFT", plate.Health, "RIGHT", 4 + ox, oy)
+      elseif pos == "middle" or pos == "center" then
+        plate.RaidMarker:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
       elseif pos == "bottom" then
         plate.RaidMarker:SetPoint("TOP", plate.Health, "BOTTOM", ox, -4 + oy)
       end
@@ -1236,7 +1612,7 @@ function MP.Display.UpdateLogic.Update(plate, unit)
   -- Cast state is updated via UNIT_SPELLCAST_* events
   
   -- Guild Text (for players)
-  if MP.DB.showGuildText and isPlayer then
+  if MP.DB.showGuildText and isPlayer and plate.GuildText then
     local guildName = GetGuildInfo(unit)
     if guildName then
       -- Use string_format instead of concatenation (3-5% memory reduction)
@@ -1256,10 +1632,10 @@ function MP.Display.UpdateLogic.Update(plate, unit)
       end
       plate.GuildText:SetScale(MP.DB.guildTextScale or 1.0)
       plate.GuildText:Show()
-      plate.CreatureText:Hide()
+      if plate.CreatureText then plate.CreatureText:Hide() end
     else
       plate.GuildText:Hide()
-      if MP.DB.showCreatureText and not isPlayer then
+      if MP.DB.showCreatureText and not isPlayer and plate.CreatureText then
         -- Show NPC title/subtitle
         local creatureType = UnitCreatureType(unit)
         if creatureType and creatureType ~= "" and creatureType ~= "Not specified" then
@@ -1274,6 +1650,8 @@ function MP.Display.UpdateLogic.Update(plate, unit)
             plate.CreatureText:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
           elseif pos == "right" then
             plate.CreatureText:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
+          elseif pos == "middle" or pos == "center" then
+            plate.CreatureText:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
           else
             plate.CreatureText:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
           end
@@ -1283,12 +1661,12 @@ function MP.Display.UpdateLogic.Update(plate, unit)
           plate.CreatureText:Hide()
         end
       else
-        plate.CreatureText:Hide()
+        if plate.CreatureText then plate.CreatureText:Hide() end
       end
     end
   else
-    plate.GuildText:Hide()
-    if MP.DB.showCreatureText and not isPlayer then
+    if plate.GuildText then plate.GuildText:Hide() end
+    if MP.DB.showCreatureText and not isPlayer and plate.CreatureText then
       -- Show NPC title/subtitle
       local creatureType = UnitCreatureType(unit)
       if creatureType and creatureType ~= "" and creatureType ~= "Not specified" then
@@ -1303,6 +1681,8 @@ function MP.Display.UpdateLogic.Update(plate, unit)
           plate.CreatureText:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
         elseif pos == "right" then
           plate.CreatureText:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
+        elseif pos == "middle" or pos == "center" then
+          plate.CreatureText:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
         else
           plate.CreatureText:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
         end
@@ -1312,7 +1692,7 @@ function MP.Display.UpdateLogic.Update(plate, unit)
         plate.CreatureText:Hide()
       end
     else
-      plate.CreatureText:Hide()
+      if plate.CreatureText then plate.CreatureText:Hide() end
     end
   end
   
@@ -1365,15 +1745,17 @@ function MP.Display.UpdateLogic.Update(plate, unit)
   end
   
   -- Aura tracking
-  plate.AuraTracker:SetUnit(unit)
+  if plate.AuraTracker then
+    plate.AuraTracker:SetUnit(unit)
+  end
   
   -- Update aura icons
   MP.Display.AuraIcons.Update(plate)
   
-  -- Apply non-target alpha fade (like BetterBlizzPlates)
+  -- Apply non-target alpha fade
   MP.Display.UpdateLogic.ApplyNameplateAlpha(plate, unit, isTarget)
   
-    if MP.DB.showCCIndicator and plate.AuraTracker:HasCrowdControl() then
+    if MP.DB.showCCIndicator and plate.AuraTracker and plate.AuraTracker:HasCrowdControl() then
       local ccAuras = plate.AuraTracker:GetCrowdControl()
       if ccAuras[1] then
         plate.CCIcon:SetTexture(ccAuras[1].icon)
@@ -1448,7 +1830,7 @@ function MP.Display.UpdateLogic.Update(plate, unit)
   end
   
   -- PvP Marker (flag carriers, orb carriers, assassins)
-  if MP.DB.showPvPMarker and MP.Constants.HasPvPClassification and C_PvP.IsPVPMap() then
+  if MP.DB.showPvPMarker and plate.PvPMarker and MP.Constants.HasPvPClassification and C_PvP.IsPVPMap() then
     local pvpClassification = UnitPvpClassification(unit)
     if pvpClassification and Enum.PvPUnitClassification then
       local atlasMap = {
@@ -1480,6 +1862,8 @@ function MP.Display.UpdateLogic.Update(plate, unit)
           plate.PvPMarker:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
         elseif pos == "right" then
           plate.PvPMarker:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
+        elseif pos == "middle" or pos == "center" then
+          plate.PvPMarker:SetPoint("CENTER", plate.Health, "CENTER", ox, oy)
         else
           plate.PvPMarker:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
         end
@@ -1491,7 +1875,7 @@ function MP.Display.UpdateLogic.Update(plate, unit)
       plate.PvPMarker:Hide()
     end
   else
-    plate.PvPMarker:Hide()
+    if plate.PvPMarker then plate.PvPMarker:Hide() end
   end
   
   -- ===== COMPREHENSIVE BLIZZARD NAMEPLATE FEATURES =====
@@ -1543,57 +1927,14 @@ function MP.Display.UpdateLogic.Update(plate, unit)
     MP.Display.GlowEffects.HideTappedOverlay(plate)
   end
   
-  if MP.DB.showWorldQuestIcon then
-    plate.WorldQuestIcon:ClearAllPoints()
-    local posWQ = MP.DB.worldQuestIconPosition or "right"
-    local ox = MP.DB.worldQuestIconOffsetX or 0
-    local oy = MP.DB.worldQuestIconOffsetY or 0
-    if posWQ == "none" then
-      plate.WorldQuestIcon:Hide()
-    elseif posWQ == "top" then
-      plate.WorldQuestIcon:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-    elseif posWQ == "left" then
-      plate.WorldQuestIcon:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-    elseif posWQ == "right" then
-      plate.WorldQuestIcon:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-    else
-      plate.WorldQuestIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-    end
-    plate.WorldQuestIcon:SetScale(MP.DB.worldQuestIconScale or 1.0)
-    -- World quest detection requires quest API
-    plate.WorldQuestIcon:Hide()
-  else
-    plate.WorldQuestIcon:Hide()
-  end
-  
-  if MP.DB.showBonusObjectiveIcon then
-    plate.BonusObjectiveIcon:ClearAllPoints()
-    local posBO = MP.DB.bonusObjectiveIconPosition or "right"
-    local ox = MP.DB.bonusObjectiveIconOffsetX or 0
-    local oy = MP.DB.bonusObjectiveIconOffsetY or 0
-    if posBO == "none" then
-      plate.BonusObjectiveIcon:Hide()
-    elseif posBO == "top" then
-      plate.BonusObjectiveIcon:SetPoint("BOTTOM", plate.Health, "TOP", ox, 2 + oy)
-    elseif posBO == "left" then
-      plate.BonusObjectiveIcon:SetPoint("RIGHT", plate.Health, "LEFT", -2 + ox, oy)
-    elseif posBO == "right" then
-      plate.BonusObjectiveIcon:SetPoint("LEFT", plate.Health, "RIGHT", 2 + ox, oy)
-    else
-      plate.BonusObjectiveIcon:SetPoint("TOP", plate.Health, "BOTTOM", ox, -2 + oy)
-    end
-    plate.BonusObjectiveIcon:SetScale(MP.DB.bonusObjectiveIconScale or 1.0)
-    -- Bonus objective detection
-    plate.BonusObjectiveIcon:Hide()
-  else
-    plate.BonusObjectiveIcon:Hide()
-  end
+  -- REMOVED: WorldQuestIcon and BonusObjectiveIcon - merged into unified QuestIcon above
+  -- These frames no longer exist (see FrameCreation.lua:118)
   
   -- Clear color cache at end of update cycle (5-8% CPU reduction)
   ClearColorCache()
 end
 
--- Apply non-target alpha fade (inspired by BetterBlizzPlates)
+-- Apply non-target alpha fade
 function MP.Display.UpdateLogic.ApplyNameplateAlpha(plate, unit, isTarget)
   if not MP.DB.fadeNonTarget then
     -- Feature disabled, always full alpha

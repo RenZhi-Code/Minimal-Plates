@@ -68,7 +68,7 @@ local crowdControlSpells = {
   [8122] = true, -- Psychic Scream
   [226943] = true, -- Mind Bomb
   
-  -- Additional spells from Platynator
+  -- Additional important spells
   [99] = true, -- Incapacitating Roar
   [22703] = true, -- Summon Infernal Stun
   [5246] = true, -- Intimidating Shout
@@ -362,37 +362,78 @@ end
 
 function MP.AurasMixin:ScanAllAuras()
   self:Reset()
-  
+
   -- Check if modern aura API exists (Retail/Midnight)
   if not MP.Constants.HasUnitAuraSlots then
     -- Classic fallback - limited aura support
     return
   end
-  
-  -- Scan harmful auras
-  local index = 1
-  while true do
-    local info = C_UnitAuras.GetAuraDataByIndex(self.unit, index, "HARMFUL")
-    if not info then break end
-    
-    local kind = self:GetAuraKind(info)
-    if kind then
-      table.insert(self[kind], info)
+
+  -- Try AuraUtil.ForEachAura for better performance (recommended by Blizzard)
+  -- In Midnight beta, AuraUtil may hit "secret" protected values, so we wrap in pcall
+  -- and fall back to manual iteration if it fails
+  local useManualIteration = true
+
+  if AuraUtil and AuraUtil.ForEachAura then
+    local harmfulSuccess = pcall(function()
+      AuraUtil.ForEachAura(self.unit, "HARMFUL", nil, function(info)
+        -- Validate info is a table and not a secret value
+        if type(info) == "table" then
+          local kind = self:GetAuraKind(info)
+          if kind then
+            table.insert(self[kind], info)
+          end
+        end
+        return false  -- continue iteration
+      end)
+    end)
+
+    local helpfulSuccess = pcall(function()
+      AuraUtil.ForEachAura(self.unit, "HELPFUL", nil, function(info)
+        -- Validate info is a table and not a secret value
+        if type(info) == "table" then
+          local kind = self:GetAuraKind(info)
+          if kind then
+            table.insert(self[kind], info)
+          end
+        end
+        return false  -- continue iteration
+      end)
+    end)
+
+    -- If both succeeded, we don't need manual iteration
+    if harmfulSuccess and helpfulSuccess then
+      useManualIteration = false
     end
-    index = index + 1
   end
-  
-  -- Scan helpful auras
-  index = 1
-  while true do
-    local info = C_UnitAuras.GetAuraDataByIndex(self.unit, index, "HELPFUL")
-    if not info then break end
-    
-    local kind = self:GetAuraKind(info)
-    if kind then
-      table.insert(self[kind], info)
+
+  -- Fallback: Manual iteration for older clients or if ForEachAura failed
+  if useManualIteration then
+    -- Scan harmful auras
+    local index = 1
+    while true do
+      local info = C_UnitAuras.GetAuraDataByIndex(self.unit, index, "HARMFUL")
+      if not info then break end
+
+      local kind = self:GetAuraKind(info)
+      if kind then
+        table.insert(self[kind], info)
+      end
+      index = index + 1
     end
-    index = index + 1
+
+    -- Scan helpful auras
+    index = 1
+    while true do
+      local info = C_UnitAuras.GetAuraDataByIndex(self.unit, index, "HELPFUL")
+      if not info then break end
+
+      local kind = self:GetAuraKind(info)
+      if kind then
+        table.insert(self[kind], info)
+      end
+      index = index + 1
+    end
   end
 end
 

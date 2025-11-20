@@ -91,12 +91,18 @@ function MP.Profiles.LoadProfile(name)
   for k, v in pairs(profile) do
     MinimalPlatesDB[k] = DeepCopy(v)
   end
-  
+
   -- Update current profile
   MinimalPlatesDB[CURRENT_PROFILE_KEY] = name
-  
+
   -- Reinitialize with new settings
   MP.DB = MinimalPlatesDB
+
+  -- CRITICAL: Initialize database defaults to fill in any missing values
+  if MP.InitializeDatabaseDefaults then
+    MP.InitializeDatabaseDefaults()
+  end
+
   if MP.Config and MP.Config.Init then
     MP.Config.Init()
   end

@@ -98,7 +98,7 @@ function MP.Display.CastBar.Start(plate, unit, isChanneled)
   if MP.DB.showCastIcon and texture then
     plate.CastIcon:SetTexture(texture)
     plate.CastIcon:Show()
-    plate.CastIconBorder:Show()
+    if plate.CastIconBorder then plate.CastIconBorder:Show() end
     -- Position cast icon by DB
     plate.CastIcon:ClearAllPoints()
     local pos = MP.DB.castIconPosition or "left"
@@ -106,7 +106,7 @@ function MP.Display.CastBar.Start(plate, unit, isChanneled)
     local oy = MP.DB.castIconOffsetY or 0
     if pos == "none" then
       plate.CastIcon:Hide()
-      plate.CastIconBorder:Hide()
+      if plate.CastIconBorder then plate.CastIconBorder:Hide() end
     elseif pos == "top" then
       plate.CastIcon:SetPoint("BOTTOM", plate.Cast, "TOP", ox, 2 + oy)
     elseif pos == "left" then
@@ -119,7 +119,7 @@ function MP.Display.CastBar.Start(plate, unit, isChanneled)
     plate.CastIcon:SetScale(MP.DB.castIconScale or 1.0)
   else
     plate.CastIcon:Hide()
-    plate.CastIconBorder:Hide()
+    if plate.CastIconBorder then plate.CastIconBorder:Hide() end
   end
   
   -- Interrupt shield indicator (REMOVED - Memory optimization)
@@ -262,7 +262,7 @@ function MP.Display.CastBar.Stop(plate, unit, interrupted)
     plate.CastBorder:Hide()
     plate.CastText:Hide()
     plate.CastIcon:Hide()
-    plate.CastIconBorder:Hide()
+    if plate.CastIconBorder then plate.CastIconBorder:Hide() end
     -- InterruptShield removed for memory optimization
     plate.CastTargetText:Hide()
     if plate.CastSpark then plate.CastSpark:Hide() end

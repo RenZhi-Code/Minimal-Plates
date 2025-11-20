@@ -225,7 +225,7 @@ end
 
 -- General Sub-Tab 1: Basic Settings
 local function CreateGeneralBasicSubTab(parent)
-  local panel = CreateScrollablePanel(parent, 600)
+  local panel = CreateScrollablePanel(parent, 800)
   local y = -10
 
   -- Quick intro
@@ -237,12 +237,139 @@ local function CreateGeneralBasicSubTab(parent)
   intro:SetJustifyH("LEFT")
   y = y - 35
 
+  -- Style Presets
+  H.CreateHeader(panel, "Style Presets", L.LEFT_COLUMN_X, y)
+  y = y - 25
+
+  local presetInfo = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  presetInfo:SetPoint("TOPLEFT", L.LEFT_COLUMN_X, y)
+  presetInfo:SetText("Quickly configure MinimalPlates to match popular nameplate addon styles:")
+  presetInfo:SetTextColor(0.7, 0.7, 0.7)
+  presetInfo:SetWidth(550)
+  y = y - 25
+
+  -- Preset configurations
+  local presets = {
+    {
+      name = "Large & Clean",
+      desc = "Large bars, clean layout, strong visual hierarchy",
+      settings = {
+        healthWidth = 140,
+        healthHeight = 12,
+        castHeight = 10,
+        scale = 1.1,
+        showHealthText = true,
+        healthTextFormat = "percentage",
+        fadeNonTarget = true,
+        nonTargetAlpha = 0.4,
+        showRaidMarkers = true,
+        showQuestIcon = true,
+        targetScale = 1.3,
+        classColors = true,
+        threatColoring = false,
+        buffsScale = 1.2,
+        debuffsScale = 1.2,
+        buffsOffsetY = 12,
+        debuffsOffsetY = 12,
+      }
+    },
+    {
+      name = "Compact",
+      desc = "Compact, minimal, elegant design",
+      settings = {
+        healthWidth = 110,
+        healthHeight = 8,
+        castHeight = 6,
+        scale = 0.9,
+        showHealthText = false,
+        healthTextFormat = "percentage",
+        fadeNonTarget = true,
+        nonTargetAlpha = 0.6,
+        showRaidMarkers = true,
+        showQuestIcon = false,
+        targetScale = 1.1,
+        classColors = true,
+        threatColoring = true,
+        buffsScale = 0.9,
+        debuffsScale = 0.9,
+        buffsOffsetY = 8,
+        debuffsOffsetY = 8,
+      }
+    },
+    {
+      name = "Modern Style",
+      desc = "Bold, high-contrast, modern gaming aesthetic",
+      settings = {
+        healthWidth = 130,
+        healthHeight = 14,
+        castHeight = 10,
+        scale = 1.15,
+        showHealthText = true,
+        healthTextFormat = "both",
+        fadeNonTarget = false,
+        nonTargetAlpha = 1.0,
+        showRaidMarkers = true,
+        showQuestIcon = true,
+        targetScale = 1.4,
+        classColors = true,
+        threatColoring = true,
+        buffsScale = 1.3,
+        debuffsScale = 1.3,
+        buffsOffsetY = 15,
+        debuffsOffsetY = 15,
+      }
+    },
+  }
+
+  -- Create preset buttons
+  local buttonWidth = 150
+  for i, preset in ipairs(presets) do
+    local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btn:SetSize(buttonWidth, 30)
+    btn:SetPoint("TOPLEFT", L.LEFT_COLUMN_X + (i - 1) * (buttonWidth + 10), y)
+    btn:SetText(preset.name)
+
+    -- Apply preset on click
+    btn:SetScript("OnClick", function()
+      for key, value in pairs(preset.settings) do
+        MP.DB[key] = value
+      end
+
+      -- Refresh DB cache and nameplates
+      if MP.Display and MP.Display.UpdateLogic and MP.Display.UpdateLogic.RefreshDBCache then
+        MP.Display.UpdateLogic.RefreshDBCache()
+      end
+      if MP.Nameplates and MP.Nameplates.RefreshAll then
+        MP.Nameplates.RefreshAll()
+      end
+
+      -- Reload settings UI to show new values
+      if SettingsFrame and SettingsFrame:IsShown() then
+        SettingsFrame:Hide()
+        C_Timer.After(0.1, function()
+          SettingsFrame:Show()
+        end)
+      end
+
+      print("|cff00ff00MinimalPlates:|r Applied " .. preset.name .. " preset!")
+    end)
+
+    -- Tooltip
+    btn:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText(preset.name, 1, 1, 1)
+      GameTooltip:AddLine(preset.desc, nil, nil, nil, true)
+      GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function()
+      GameTooltip:Hide()
+    end)
+  end
+
+  y = y - 50
+
   H.CreateHeader(panel, "Basic Settings", L.LEFT_COLUMN_X, y)
   y = y - L.HEADER_SPACING
-
-  H.CreateCheckbox(panel, "Enable MinimalPlates", "enabled", L.LEFT_COLUMN_X, y, nil,
-    "Turn the addon on or off. When disabled, Blizzard's default nameplates are used.")
-  y = y - L.OPTION_SPACING
 
   H.CreateSlider(panel, "Nameplate Scale", "scale", 0.5, 2.0, 0.1, L.LEFT_COLUMN_X, y, nil,
     "Global scale for all nameplates. 1.0 is default size.")
@@ -288,7 +415,11 @@ local function CreateGeneralDisplayModesSubTab(parent)
   y = y - 50
 
   H.CreateDropdown(panel, MP.L["Friendly NPCs"], "friendlyNPCMode", DROPDOWN_OPTIONS.DisplayMode, L.LEFT_COLUMN_X, y, 150, nil, MP.L["Friendly NPCs like quest givers and vendors."])
-  y = y - 70
+  y = y - 60
+
+  H.CreateCheckbox(panel, "Force Party/Raid Text-Only", "partyMembersTextOnly", L.LEFT_COLUMN_X, y, nil,
+    "Force all party and raid members to show as text-only (no health bars) regardless of the Friendly Players setting above.")
+  y = y - 40
 
   H.CreateHeader(panel, MP.L["Additional Unit Info"], L.LEFT_COLUMN_X, y)
   y = y - L.HEADER_SPACING
@@ -353,7 +484,22 @@ local function CreateGeneralColorsSubTab(parent)
 
   H.CreateCheckbox(panel, MP.L["Show Mouseover Highlight"], "showMouseoverHighlight", L.RIGHT_COLUMN_X, yRight, nil,
     MP.L["Highlight nameplates when you mouse over them."])
+  yRight = yRight - L.OPTION_SPACING + 10
+
+  H.CreateHeader(panel, "Nameplate Colors", L.RIGHT_COLUMN_X, yRight)
+  yRight = yRight - L.HEADER_SPACING
+
+  H.CreateColorPicker(panel, "Quest NPC Color", "questNPCColor", L.RIGHT_COLUMN_X, yRight,
+    "Color for NPCs with available quests.")
+  yRight = yRight - 35
+
+  H.CreateCheckbox(panel, "Use Target Color Override", "useTargetColor", L.RIGHT_COLUMN_X, yRight, nil,
+    "Override health bar color for your current target with custom color below.")
   yRight = yRight - L.OPTION_SPACING
+
+  H.CreateColorPicker(panel, "Target Nameplate Color", "targetColor", L.RIGHT_COLUMN_X, yRight,
+    "Custom color for your current target's health bar. Enable 'Use Target Color Override' above to activate.")
+  yRight = yRight - 40
 
   return panel
 end
@@ -374,10 +520,6 @@ local function CreateGeneralUnitInfoSubTab(parent)
   -- LEFT COLUMN
   H.CreateHeader(panel, MP.L["Unit Information"], L.LEFT_COLUMN_X, y)
   y = y - L.HEADER_SPACING
-
-  H.CreateCheckbox(panel, MP.L["Show Level"], "showLevel", L.LEFT_COLUMN_X, y, nil,
-    MP.L["Display unit level number."])
-  y = y - L.OPTION_SPACING
 
   H.CreateCheckbox(panel, MP.L["Show Guild Text"], "showGuildText", L.LEFT_COLUMN_X, y, nil,
     MP.L["Show guild name under player names."])
@@ -616,10 +758,6 @@ local function CreateAppearanceCastBarsSubTab(parent)
 
   H.CreateColorPicker(panel, "Non-Interruptible Cast Color", "nonInterruptibleCastColor", L.RIGHT_COLUMN_X, yRight,
     "Color for casts you cannot interrupt.")
-  yRight = yRight - 35
-
-  H.CreateColorPicker(panel, "Quest NPC Color", "questNPCColor", L.RIGHT_COLUMN_X, yRight,
-    "Color for NPCs with available quests.")
   yRight = yRight - 40
 
   return panel
@@ -712,6 +850,17 @@ local function CreateAppearanceVisualEffectsSubTab(parent)
   H.CreateCheckbox(panel, "Show Loss of Aggro Flash", "showLossOfAggroFlash", L.LEFT_COLUMN_X, y, nil,
     "White flash when you lose threat (useful for tanks).")
   y = y - L.OPTION_SPACING + 10
+
+  H.CreateHeader(panel, "Elite & Rare Display", L.LEFT_COLUMN_X, y)
+  y = y - L.HEADER_SPACING
+
+  H.CreateCheckbox(panel, "Show Elite/Rare Icons", "showEliteBorder", L.LEFT_COLUMN_X, y, nil,
+    "Display special icons for elite, rare, and rare elite units.")
+  y = y - L.OPTION_SPACING
+
+  H.CreateDropdown(panel, "Elite/Rare Display", "eliteIconStyle", DROPDOWN_OPTIONS.EliteIconStyle, L.LEFT_COLUMN_X, y, 150, nil,
+    "Choose whether to show icon, text (Elite/Rare), both, or none.")
+  y = y - 45
 
   return panel
 end
@@ -841,6 +990,10 @@ local function CreateIconsQuestSubTab(parent)
   H.CreateCheckbox(panel, "Show Elite/Rare Icons", "showEliteBorder", L.LEFT_COLUMN_X, y, nil,
     "Display special icons for elite, rare, and rare elite units.")
   y = y - L.OPTION_SPACING
+
+  H.CreateDropdown(panel, "Elite/Rare Display", "eliteIconStyle", DROPDOWN_OPTIONS.EliteIconStyle, L.LEFT_COLUMN_X, y, 150, nil,
+    "Choose whether to show icon, text (Elite/Rare), both, or none.")
+  y = y - 45
 
   H.CreateCheckbox(panel, "Show Quest Icons", "showQuestIcon", L.LEFT_COLUMN_X, y, nil,
     "Yellow ! icon for units with available quests.")
@@ -1156,85 +1309,43 @@ local function CreateAdvancedPositionsSubTab(parent)
   y = y - 30
 
   H.CreatePositionControl(panel, "Name", "namePosition", "nameYOffset", "nameScale", L.LEFT_COLUMN_X, y,
-    "Position, height (Y offset), and scale for name text.")
+    "Position, height (Y offset), and scale for name text. Use 'Middle' to display name inside health bar with white color.")
   y = y - 70
 
   H.CreatePositionControl(panel, "Level", "levelPosition", "levelOffsetY", "levelScale", L.LEFT_COLUMN_X, y,
     "Position, height (Y offset), and scale for level text/icon.")
-  y = y - 70
-
-  H.CreatePositionControl(panel, "Guild Text", "guildTextPosition", "guildTextOffsetY", "guildTextScale", L.LEFT_COLUMN_X, y,
-    "Position, height, and scale for player guild text.", "guildTextOffsetX")
-  y = y - 95
-
-  H.CreatePositionControl(panel, "Creature Text", "creatureTextPosition", "creatureTextOffsetY", "creatureTextScale", L.LEFT_COLUMN_X, y,
-    "Position, height, and scale for NPC titles/subtitles.", "creatureTextOffsetX")
-  y = y - 95
-
-  H.CreatePositionControl(panel, "Unit Target Text", "unitTargetPosition", "unitTargetOffsetY", "unitTargetScale", L.LEFT_COLUMN_X, y,
-    "Position, height, and scale for 'Unit is targeting' text.")
-  y = y - 70
-
-  H.CreatePositionControl(panel, "Cast Text", "castTextPosition", "castTextOffsetY", "castTextScale", L.LEFT_COLUMN_X, y,
-    "Position, height, and scale for the cast text below/above the bar.")
-  y = y - 70
-
-  H.CreatePositionControl(panel, "Cast Target Text", "castTargetPosition", "castTargetOffsetY", "castTargetScale", L.LEFT_COLUMN_X, y,
-    "Position, height, and scale for 'Casting at' text.")
   y = y - 75
+
+  -- REMOVED: Guild Text, Creature Text, Unit Target Text, Cast Target Text
+  -- These niche features use hardcoded defaults to reduce UI bloat
 
   -- RIGHT COLUMN - Icons & Markers
   local yRight = -35
   H.CreateHeader(panel, "Icons & Markers", L.RIGHT_COLUMN_X, yRight)
   yRight = yRight - 30
 
-  H.CreatePositionControl(panel, "Class Icon", "classIconPosition", "classIconOffsetY", "classIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for elite/rare icons.")
+  H.CreatePositionControl(panel, "Elite Icon", "classIconPosition", "classIconOffsetY", "classIconScale", L.RIGHT_COLUMN_X, yRight,
+    "Position, height, and scale for elite/rare icons.", "classIconOffsetX")
   yRight = yRight - 70
 
   H.CreatePositionControl(panel, "Role Icon", "roleIconPosition", "roleIconOffsetY", "roleIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for tank/healer icons.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "Pet Icon", "petIconPosition", "petIconOffsetY", "petIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for pet indicator.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "Cast Icon", "castIconPosition", "castIconOffsetY", "castIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for the cast spell icon.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "Healer Icon", "healerIconPosition", "healerIconOffsetY", "healerIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for healer indicator.")
+    "Position, height, and scale for tank/healer icons.", "roleIconOffsetX")
   yRight = yRight - 70
 
   H.CreatePositionControl(panel, "CC Icon", "ccIconPosition", "ccIconOffsetY", "ccIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for crowd control indicator.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "Interrupt Shield", "interruptShieldPosition", "interruptShieldOffsetY", "interruptShieldScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for interrupt shield icon.")
+    "Position, height, and scale for crowd control indicator.", "ccIconOffsetX")
   yRight = yRight - 70
 
   H.CreatePositionControl(panel, "Raid Marker", "raidMarkerPosition", "raidMarkerOffsetY", "raidMarkerScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for raid target markers.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "PvP Marker", "pvpMarkerPosition", "pvpMarkerOffsetY", "pvpMarkerScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for PvP markers.")
+    "Position, height, and scale for raid target markers.", "raidMarkerOffsetX")
   yRight = yRight - 70
 
   H.CreatePositionControl(panel, "Quest Icon", "questIconPosition", "questIconOffsetY", "questIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for quest icon.")
+    "Position, height, and scale for quest-related icons (quests, world quests, bonus objectives).", "questIconOffsetX")
   yRight = yRight - 70
 
-  H.CreatePositionControl(panel, "World Quest Icon", "worldQuestIconPosition", "worldQuestIconOffsetY", "worldQuestIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for world quest icon.")
-  yRight = yRight - 70
-
-  H.CreatePositionControl(panel, "Bonus Objective Icon", "bonusObjectiveIconPosition", "bonusObjectiveIconOffsetY", "bonusObjectiveIconScale", L.RIGHT_COLUMN_X, yRight,
-    "Position, height, and scale for bonus objective icon.")
-  yRight = yRight - 70
+  -- REMOVED: Pet Icon, Healer Icon, Interrupt Shield, PvP Marker, World Quest Icon, Bonus Objective Icon
+  -- Frames removed for memory optimization / UI simplification
 
   return panel
 end
@@ -1263,56 +1374,35 @@ local function CreateAdvancedPositionsSubTab_Simple(parent)
   y = y - 45
 
   H.CreateDropdown(panel, "Level", "levelPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for level text/icon.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Guild Text", "guildTextPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for player guild text.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Creature Text", "creatureTextPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for NPC titles/subtitles.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Unit Target Text", "unitTargetPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for 'Unit is targeting' text.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Cast Target Text", "castTargetPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for 'Casting at' text.")
   y = y - 50
+
+  -- REMOVED: Guild Text, Creature Text, Unit Target Text, Cast Target Text positions
+  -- These are niche features that bloat the UI - positions use hardcoded defaults
 
   -- Icons & Markers
   H.CreateHeader(panel, "Icons & Markers", L.LEFT_COLUMN_X, y)
   y = y - 25
 
-  H.CreateDropdown(panel, "Class Icon", "classIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for elite/rare icons.")
+  H.CreateDropdown(panel, "Elite/Rare Icon", "classIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for elite/rare icons.")
   y = y - 45
 
   H.CreateDropdown(panel, "Role Icon", "roleIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for tank/healer icons.")
   y = y - 45
 
-  H.CreateDropdown(panel, "Pet Icon", "petIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for pet indicator.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Healer Icon", "healerIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for healer indicator.")
-  y = y - 45
-
   H.CreateDropdown(panel, "CC Icon", "ccIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for crowd control indicator.")
   y = y - 45
 
-  H.CreateDropdown(panel, "Interrupt Shield", "interruptShieldPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for interrupt shield icon.")
-  y = y - 45
+  -- REMOVED for memory optimization: Pet Icon, Healer Icon, Interrupt Shield
+  -- These frames no longer exist (see FrameCreation.lua:168)
 
   H.CreateDropdown(panel, "Raid Marker", "raidMarkerPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for raid target markers.")
   y = y - 45
 
-  H.CreateDropdown(panel, "PvP Marker", "pvpMarkerPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for PvP markers.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Quest Icon", "questIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for quest icon.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "World Quest Icon", "worldQuestIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for world quest icon.")
-  y = y - 45
-
-  H.CreateDropdown(panel, "Bonus Objective Icon", "bonusObjectiveIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for bonus objective icon.")
+  H.CreateDropdown(panel, "Quest Icon", "questIconPosition", DROPDOWN_OPTIONS.Position, L.LEFT_COLUMN_X, y, 150, nil, "Position for quest-related icons (quests, world quests, bonus objectives).")
   y = y - 50
+
+  -- REMOVED: PvP Marker, World Quest Icon, Bonus Objective Icon
+  -- PvP markers handled by Blizzard; Quest icons merged into single Quest Icon setting
 
   -- RIGHT COLUMN - Cast Elements
   local yRight = -35
@@ -1426,6 +1516,7 @@ local function CreateAdvancedTab(parent)
   -- Sub-tab buttons
   local subTabs = {
     {name = "Positions", panel = nil, createFunc = CreateAdvancedPositionsSubTab},
+    {name = "Auras", panel = nil, createFunc = CreateIconsAurasSubTab},
     {name = "Fade & Effects", panel = nil, createFunc = CreateAdvancedFadeSubTab},
     {name = "Stacking", panel = nil, createFunc = CreateAdvancedStackingSubTab},
     {name = "Accessibility", panel = nil, createFunc = CreateAdvancedAccessibilitySubTab},
@@ -1622,9 +1713,9 @@ function MP.Settings.CreateStandaloneUI()
 
   -- Creating new SettingsFrame
 
-  -- Main frame (wider to accommodate preview panel)
+  -- Main frame
   SettingsFrame = CreateFrame("Frame", "MinimalPlatesSettingsFrame", UIParent, "BackdropTemplate")
-  SettingsFrame:SetSize(1100, 560)
+  SettingsFrame:SetSize(820, 560)
   SettingsFrame:SetPoint("CENTER")
   SettingsFrame:SetBackdrop({
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -1643,28 +1734,8 @@ function MP.Settings.CreateStandaloneUI()
   SettingsFrame:SetFrameStrata("DIALOG")
   SettingsFrame:SetClampedToScreen(true)
 
-  -- Preview Panel on the right
-  local previewPanel = CreateFrame("Frame", nil, SettingsFrame, "BackdropTemplate")
-  previewPanel:SetPoint("TOPRIGHT", -15, -75)
-  previewPanel:SetSize(260, 470)
-  previewPanel:SetBackdrop({
-    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true,
-    tileSize = 16,
-    edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 }
-  })
-  previewPanel:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-  previewPanel:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-
-  local previewTitle = previewPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  previewTitle:SetPoint("TOP", 0, -8)
-  previewTitle:SetText("Preview")
-  previewTitle:SetTextColor(1, 0.82, 0)
-
-  -- Store reference for later updates
-  SettingsFrame.previewPanel = previewPanel
+  -- REMOVED: Preview Panel (outdated, doesn't reflect live changes)
+  -- Saves memory and simplifies UI
 
   -- Title
   local title = SettingsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -1750,410 +1821,7 @@ function MP.Settings.CreateStandaloneUI()
   end
   tabButtons[1]:Disable()
 
-  -- Create preview nameplates with ALL Advanced tab elements
-  local function CreatePreviewNameplate(parent, yOffset, isEnemy, isPlayer, unitName, healthPct)
-    local plate = CreateFrame("Frame", nil, parent)
-    plate:SetSize(220, 120)  -- Increased to show cast bars + power bars
-    plate:SetPoint("TOP", 0, yOffset)
-
-    local mode
-    if isEnemy then
-      mode = isPlayer and (MP.DB.enemyPlayerMode or "bar") or (MP.DB.enemyNPCMode or "bar")
-    else
-      mode = isPlayer and (MP.DB.friendlyPlayerMode or "text") or (MP.DB.friendlyNPCMode or "text")
-    end
-
-    local font, size, flags = MP.Config.GetFont()
-
-    if mode == "bar" then
-      -- Health bar
-      local health = CreateFrame("StatusBar", nil, plate)
-      health:SetPoint("CENTER", 0, 0)
-      health:SetSize(MP.DB.healthWidth or 120, MP.DB.healthHeight or 8)
-      health:SetStatusBarTexture(MP.Config.GetBarTexture())
-      health:SetMinMaxValues(0, 100)
-      health:SetValue(healthPct)
-      health:SetStatusBarColor(isEnemy and 1 or 0, isEnemy and 0 or 1, 0)
-
-      local bg = health:CreateTexture(nil, "BACKGROUND")
-      bg:SetAllPoints(health)
-      bg:SetColorTexture(0, 0, 0, 0.5)
-
-      local border = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-      border:SetPoint("TOPLEFT", health, -1, 1)
-      border:SetPoint("BOTTOMRIGHT", health, 1, -1)
-      border:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-      border:SetBackdropBorderColor(0, 0, 0, 1)
-
-      -- Name text
-      local name = health:CreateFontString(nil, "OVERLAY")
-      name:SetPoint("BOTTOM", health, "TOP", 0, MP.DB.nameYOffset or 4)
-      name:SetFont(font, size, flags)
-      name:SetText(unitName)
-      name:SetTextColor(1, 1, 1)
-      plate.Name = name
-
-      -- Level (enemies only)
-      if isEnemy and MP.DB.showLevel then
-        local level = plate:CreateFontString(nil, "OVERLAY")
-        level:SetFont(font, size * (MP.DB.levelIconScale or 1.5), flags)
-        level:SetPoint("RIGHT", health, "LEFT", -4, 0)
-        level:SetText("??")
-        level:SetTextColor(1, 0.3, 0.3)
-      end
-
-      -- Elite/Rare icons
-      if MP.DB.showEliteBorder and isEnemy then
-        local icon = plate:CreateTexture(nil, "OVERLAY")
-        icon:SetSize(16, 16)
-        icon:SetPoint("LEFT", name, "RIGHT", 2, 0)
-        icon:SetTexture(isPlayer and "Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\rareelite.png"
-                                 or "Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\elite.png")
-      end
-
-      -- Quest icon
-      if MP.DB.showQuestIcon and not isPlayer then
-        local quest = plate:CreateTexture(nil, "OVERLAY")
-        quest:SetTexture("Interface/Nameplates/UI-Nameplate-QuestIcon")
-        quest:SetSize(MP.DB.questIconSize or 16, MP.DB.questIconSize or 16)
-        quest:SetPoint("LEFT", name, "RIGHT", MP.DB.showEliteBorder and 20 or 4, 0)
-      end
-
-      -- Raid marker
-      if MP.DB.showRaidMarker then
-        local marker = plate:CreateTexture(nil, "OVERLAY")
-        marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        marker:SetSize(MP.DB.raidMarkerSize or 24, MP.DB.raidMarkerSize or 24)
-        marker:SetPoint("BOTTOM", health, "TOP", 0, (MP.DB.nameYOffset or 4) + size + 10)
-        SetRaidTargetIconTexture(marker, 8)  -- Skull
-      end
-
-      -- Guild/Creature text
-      if isPlayer and MP.DB.showGuildText then
-        local guild = plate:CreateFontString(nil, "OVERLAY")
-        guild:SetFont(font, size - 2, flags)
-        guild:SetPoint("TOP", name, "BOTTOM", 0, -2)
-        guild:SetText("<Guild>")
-        guild:SetTextColor(0.5, 1, 0.5)
-      elseif not isPlayer and MP.DB.showCreatureText then
-        local creature = plate:CreateFontString(nil, "OVERLAY")
-        creature:SetFont(font, size - 2, flags)
-        creature:SetPoint("TOP", name, "BOTTOM", 0, -2)
-        creature:SetText("<Title>")
-        creature:SetTextColor(0.9, 0.9, 0.9)
-      end
-
-      -- Cast bar
-      if MP.DB.showCastBar then
-        local cast = CreateFrame("StatusBar", nil, plate)
-        cast:SetPoint("TOP", health, "BOTTOM", 0, MP.DB.castYOffset or -2)
-        cast:SetSize(MP.DB.healthWidth or 120, MP.DB.castHeight or 8)
-        cast:SetStatusBarTexture(MP.Config.GetBarTexture())
-        cast:SetStatusBarColor(1, 0.7, 0)
-        cast:SetMinMaxValues(0, 1)
-        cast:SetValue(0.6)
-
-        local castBorder = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-        castBorder:SetPoint("TOPLEFT", cast, -1, 1)
-        castBorder:SetPoint("BOTTOMRIGHT", cast, 1, -1)
-        castBorder:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-        castBorder:SetBackdropBorderColor(0, 0, 0, 1)
-
-        if MP.DB.showCastIcon then
-          local icon = plate:CreateTexture(nil, "ARTWORK")
-          icon:SetSize(MP.DB.castHeight + 4, MP.DB.castHeight + 4)
-          icon:SetPoint("RIGHT", cast, "LEFT", -2, 0)
-          icon:SetTexture("Interface\\Icons\\Spell_Fire_FlameBolt")
-          icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-        end
-      end
-
-      -- Power bar
-      if MP.DB.showPowerBar and isEnemy then
-        local castHeight = MP.DB.showCastBar and (MP.DB.castHeight or 8) or 0
-        local castOffset = MP.DB.showCastBar and (MP.DB.castYOffset or -2) or 0
-        local power = CreateFrame("StatusBar", nil, plate)
-        power:SetPoint("TOP", health, "BOTTOM", 0, castOffset - castHeight - 2)
-        power:SetSize(MP.DB.healthWidth or 120, 3)
-        power:SetStatusBarTexture(MP.Config.GetBarTexture())
-        power:SetStatusBarColor(0, 0.5, 1)
-        power:SetMinMaxValues(0, 100)
-        power:SetValue(80)
-
-        local powerBorder = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-        powerBorder:SetPoint("TOPLEFT", power, -1, 1)
-        powerBorder:SetPoint("BOTTOMRIGHT", power, 1, -1)
-        powerBorder:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-        powerBorder:SetBackdropBorderColor(0, 0, 0, 1)
-      end
-
-      -- Health text
-      if MP.DB.showHealthText then
-        local healthText = health:CreateFontString(nil, "OVERLAY")
-        healthText:SetPoint("CENTER", health, 0, 0)
-        healthText:SetFont(font, size, flags)
-        healthText:SetText(string.format("%d%%", healthPct))
-        healthText:SetTextColor(1, 1, 1)
-      end
-
-      plate.Health = health
-    elseif mode == "text" then
-      local name = plate:CreateFontString(nil, "OVERLAY")
-      name:SetPoint("CENTER", 0, 0)
-      name:SetFont(font, size, flags)
-      name:SetText(unitName)
-      name:SetTextColor(isEnemy and 1 or 0, isEnemy and 0 or 1, 0)
-      plate.Name = name
-    elseif mode == "hide" then
-      local name = plate:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-      name:SetPoint("CENTER", 0, 0)
-      name:SetFont(font, size - 2, flags)
-      name:SetText("(Hidden)")
-      name:SetTextColor(0.5, 0.5, 0.5)
-    end
-
-    return plate
-  end
-
-  -- Create 4 preview plates showing all display mode combinations (increased spacing for new height)
-  local enemyPlayerPlate = CreatePreviewNameplate(previewPanel, -40, true, true, "Enemy Player", 75)
-  local enemyNPCPlate = CreatePreviewNameplate(previewPanel, -170, true, false, "Enemy NPC", 85)
-  local friendlyPlayerPlate = CreatePreviewNameplate(previewPanel, -300, false, true, "Friendly Player", 100)
-  local friendlyNPCPlate = CreatePreviewNameplate(previewPanel, -430, false, false, "Friendly NPC", 95)
-
-  -- Store references for updates
-  SettingsFrame.previewPlates = {enemyPlayerPlate, enemyNPCPlate, friendlyPlayerPlate, friendlyNPCPlate}
-
-  -- CRITICAL: Clean up preview frames when settings window closes to prevent memory leaks
-  SettingsFrame:SetScript("OnHide", function(self)
-    if self.previewPlates then
-      for _, plate in ipairs(self.previewPlates) do
-        if plate.Health then
-          plate.Health:Hide()
-          plate.Health:SetParent(nil)
-        end
-        if plate.Cast then
-          plate.Cast:Hide()
-          plate.Cast:SetParent(nil)
-        end
-        if plate.PowerBar then
-          plate.PowerBar:Hide()
-          plate.PowerBar:SetParent(nil)
-        end
-        plate:Hide()
-        plate:SetParent(nil)
-      end
-      wipe(self.previewPlates)
-    end
-  end)
 
   SettingsFrame:Show()
 end
 
--- Refresh preview nameplates when settings change
-function MP.Settings.RefreshPreview()
-  if not SettingsFrame or not SettingsFrame:IsShown() or not SettingsFrame.previewPlates then
-    return
-  end
-
-  -- Debug: Print to verify refresh is being called
-  print("[MinimalPlates] Preview refreshing...")
-
-  -- Properly destroy old preview plates to prevent memory leaks
-  for _, plate in ipairs(SettingsFrame.previewPlates) do
-    -- Explicitly destroy child frames created in CreatePreviewNameplate
-    if plate.Health then
-      plate.Health:Hide()
-      plate.Health:SetParent(nil)
-    end
-    if plate.Cast then
-      plate.Cast:Hide()
-      plate.Cast:SetParent(nil)
-    end
-    if plate.PowerBar then
-      plate.PowerBar:Hide()
-      plate.PowerBar:SetParent(nil)
-    end
-    -- Hide and unparent the main plate frame
-    plate:Hide()
-    plate:SetParent(nil)
-  end
-  wipe(SettingsFrame.previewPlates)
-
-  local previewPanel = SettingsFrame.previewPanel
-  if not previewPanel then return end
-
-  -- Create new preview nameplates with ALL Advanced tab elements
-  local function CreatePreviewNameplate(parent, yOffset, isEnemy, isPlayer, unitName, healthPct)
-    local plate = CreateFrame("Frame", nil, parent)
-    plate:SetSize(220, 120)  -- Increased to show cast bars + power bars
-    plate:SetPoint("TOP", 0, yOffset)
-
-    local mode
-    if isEnemy then
-      mode = isPlayer and (MP.DB.enemyPlayerMode or "bar") or (MP.DB.enemyNPCMode or "bar")
-    else
-      mode = isPlayer and (MP.DB.friendlyPlayerMode or "text") or (MP.DB.friendlyNPCMode or "text")
-    end
-
-    local font, size, flags = MP.Config.GetFont()
-
-    if mode == "bar" then
-      -- Health bar
-      local health = CreateFrame("StatusBar", nil, plate)
-      health:SetPoint("CENTER", 0, 0)
-      health:SetSize(MP.DB.healthWidth or 120, MP.DB.healthHeight or 8)
-      health:SetStatusBarTexture(MP.Config.GetBarTexture())
-      health:SetMinMaxValues(0, 100)
-      health:SetValue(healthPct)
-      health:SetStatusBarColor(isEnemy and 1 or 0, isEnemy and 0 or 1, 0)
-
-      local bg = health:CreateTexture(nil, "BACKGROUND")
-      bg:SetAllPoints(health)
-      bg:SetColorTexture(0, 0, 0, 0.5)
-
-      local border = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-      border:SetPoint("TOPLEFT", health, -1, 1)
-      border:SetPoint("BOTTOMRIGHT", health, 1, -1)
-      border:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-      border:SetBackdropBorderColor(0, 0, 0, 1)
-
-      -- Name text
-      local name = health:CreateFontString(nil, "OVERLAY")
-      name:SetPoint("BOTTOM", health, "TOP", 0, MP.DB.nameYOffset or 4)
-      name:SetFont(font, size, flags)
-      name:SetText(unitName)
-      name:SetTextColor(1, 1, 1)
-      plate.Name = name
-
-      -- Level (enemies only)
-      if isEnemy and MP.DB.showLevel then
-        local level = plate:CreateFontString(nil, "OVERLAY")
-        level:SetFont(font, size * (MP.DB.levelIconScale or 1.5), flags)
-        level:SetPoint("RIGHT", health, "LEFT", -4, 0)
-        level:SetText("??")
-        level:SetTextColor(1, 0.3, 0.3)
-      end
-
-      -- Elite/Rare icons
-      if MP.DB.showEliteBorder and isEnemy then
-        local icon = plate:CreateTexture(nil, "OVERLAY")
-        icon:SetSize(16, 16)
-        icon:SetPoint("LEFT", name, "RIGHT", 2, 0)
-        icon:SetTexture(isPlayer and "Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\rareelite.png"
-                                 or "Interface\\AddOns\\MinimalPlates\\Libs\\Icons\\elite.png")
-      end
-
-      -- Quest icon
-      if MP.DB.showQuestIcon and not isPlayer then
-        local quest = plate:CreateTexture(nil, "OVERLAY")
-        quest:SetTexture("Interface/Nameplates/UI-Nameplate-QuestIcon")
-        quest:SetSize(MP.DB.questIconSize or 16, MP.DB.questIconSize or 16)
-        quest:SetPoint("LEFT", name, "RIGHT", MP.DB.showEliteBorder and 20 or 4, 0)
-      end
-
-      -- Raid marker
-      if MP.DB.showRaidMarker then
-        local marker = plate:CreateTexture(nil, "OVERLAY")
-        marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        marker:SetSize(MP.DB.raidMarkerSize or 24, MP.DB.raidMarkerSize or 24)
-        marker:SetPoint("BOTTOM", health, "TOP", 0, (MP.DB.nameYOffset or 4) + size + 10)
-        SetRaidTargetIconTexture(marker, 8)  -- Skull
-      end
-
-      -- Guild/Creature text
-      if isPlayer and MP.DB.showGuildText then
-        local guild = plate:CreateFontString(nil, "OVERLAY")
-        guild:SetFont(font, size - 2, flags)
-        guild:SetPoint("TOP", name, "BOTTOM", 0, -2)
-        guild:SetText("<Guild>")
-        guild:SetTextColor(0.5, 1, 0.5)
-      elseif not isPlayer and MP.DB.showCreatureText then
-        local creature = plate:CreateFontString(nil, "OVERLAY")
-        creature:SetFont(font, size - 2, flags)
-        creature:SetPoint("TOP", name, "BOTTOM", 0, -2)
-        creature:SetText("<Title>")
-        creature:SetTextColor(0.9, 0.9, 0.9)
-      end
-
-      -- Cast bar
-      if MP.DB.showCastBar then
-        local cast = CreateFrame("StatusBar", nil, plate)
-        cast:SetPoint("TOP", health, "BOTTOM", 0, MP.DB.castYOffset or -2)
-        cast:SetSize(MP.DB.healthWidth or 120, MP.DB.castHeight or 8)
-        cast:SetStatusBarTexture(MP.Config.GetBarTexture())
-        cast:SetStatusBarColor(1, 0.7, 0)
-        cast:SetMinMaxValues(0, 1)
-        cast:SetValue(0.6)
-
-        local castBorder = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-        castBorder:SetPoint("TOPLEFT", cast, -1, 1)
-        castBorder:SetPoint("BOTTOMRIGHT", cast, 1, -1)
-        castBorder:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-        castBorder:SetBackdropBorderColor(0, 0, 0, 1)
-
-        if MP.DB.showCastIcon then
-          local icon = plate:CreateTexture(nil, "ARTWORK")
-          icon:SetSize(MP.DB.castHeight + 4, MP.DB.castHeight + 4)
-          icon:SetPoint("RIGHT", cast, "LEFT", -2, 0)
-          icon:SetTexture("Interface\\Icons\\Spell_Fire_FlameBolt")
-          icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-        end
-      end
-
-      -- Power bar
-      if MP.DB.showPowerBar and isEnemy then
-        local castHeight = MP.DB.showCastBar and (MP.DB.castHeight or 8) or 0
-        local castOffset = MP.DB.showCastBar and (MP.DB.castYOffset or -2) or 0
-        local power = CreateFrame("StatusBar", nil, plate)
-        power:SetPoint("TOP", health, "BOTTOM", 0, castOffset - castHeight - 2)
-        power:SetSize(MP.DB.healthWidth or 120, 3)
-        power:SetStatusBarTexture(MP.Config.GetBarTexture())
-        power:SetStatusBarColor(0, 0.5, 1)
-        power:SetMinMaxValues(0, 100)
-        power:SetValue(80)
-
-        local powerBorder = CreateFrame("Frame", nil, plate, "BackdropTemplate")
-        powerBorder:SetPoint("TOPLEFT", power, -1, 1)
-        powerBorder:SetPoint("BOTTOMRIGHT", power, 1, -1)
-        powerBorder:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
-        powerBorder:SetBackdropBorderColor(0, 0, 0, 1)
-      end
-
-      -- Health text
-      if MP.DB.showHealthText then
-        local healthText = health:CreateFontString(nil, "OVERLAY")
-        healthText:SetPoint("CENTER", health, 0, 0)
-        healthText:SetFont(font, size, flags)
-        healthText:SetText(string.format("%d%%", healthPct))
-        healthText:SetTextColor(1, 1, 1)
-      end
-
-      plate.Health = health
-    elseif mode == "text" then
-      local name = plate:CreateFontString(nil, "OVERLAY")
-      name:SetPoint("CENTER", 0, 0)
-      name:SetFont(font, size, flags)
-      name:SetText(unitName)
-      name:SetTextColor(isEnemy and 1 or 0, isEnemy and 0 or 1, 0)
-      plate.Name = name
-    elseif mode == "hide" then
-      local name = plate:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-      name:SetPoint("CENTER", 0, 0)
-      name:SetFont(font, size - 2, flags)
-      name:SetText("(Hidden)")
-      name:SetTextColor(0.5, 0.5, 0.5)
-    end
-
-    return plate
-  end
-
-  -- Create 4 preview plates (increased spacing for new height)
-  local enemyPlayerPlate = CreatePreviewNameplate(previewPanel, -40, true, true, "Enemy Player", 75)
-  local enemyNPCPlate = CreatePreviewNameplate(previewPanel, -170, true, false, "Enemy NPC", 85)
-  local friendlyPlayerPlate = CreatePreviewNameplate(previewPanel, -300, false, true, "Friendly Player", 100)
-  local friendlyNPCPlate = CreatePreviewNameplate(previewPanel, -430, false, false, "Friendly NPC", 95)
-
-  -- Update stored references
-  SettingsFrame.previewPlates = {enemyPlayerPlate, enemyNPCPlate, friendlyPlayerPlate, friendlyNPCPlate}
-end
